@@ -93,8 +93,9 @@ class Sequential:
             x = layer(x)
         return x
 
-
+    
 class LinearLayer:
+    """A fully connected, feed forward layer"""
     def __init__(self, in_dim, out_dim):
         self.W = np.random.randn(out_dim, in_dim) * np.sqrt(
             2.0 / (in_dim + out_dim)
@@ -118,6 +119,51 @@ class LinearLayer:
 
     def __call__(self, x):
         return self.forward(x)
+    
+    
+class DendriticLayer:
+    """A sparse dendritic layer, consiting of dendrites and somas"""
+
+    def __init__(self, in_dim, out_dim, strategy="random", n_dendrite_inputs=16, n_dendrites =3):
+        self.W = np.random.randn(out_dim, in_dim) * np.sqrt(
+            2.0 / (in_dim + out_dim)
+        )  # xavier init
+        self.b = np.zeros(out_dim)
+        self.dW = 0.0
+        self.db = 0.0
+        self.x = None
+                
+        assert strategy == "random", "Invalid strategy"
+        
+        # sample dendrite masks
+        self.dendrite_mask = []
+        
+        # sample for each dendrite
+        for i in range(n_dendrites):
+            dendrite_inputs = []
+            for k in range(n_dendrite_inputs):
+                # sample for each inpit
+                if strategy == "random":
+                    dendrite_inputs.append(np.random.randint(0, in_dim))
+            self.dendrite_mask.append(dendrite_inputs)
+        print("final dendrite mask", self.dendrite_mask)          
+        
+
+    def forward(self, x):
+        # print(f"x: {x}, self.W {self.W}, self.b {self.b}")
+        self.x = x
+        return self.W @ x + self.b
+
+    def backward(self, grad):
+        # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
+        self.dW = np.outer(grad, self.x)
+        self.db = grad
+        grad = self.W.T @ grad
+        return grad
+
+    def __call__(self, x):
+        return self.forward(x)
+    
 
 
 def train(
@@ -182,28 +228,33 @@ def main():
     targets = Sigmoid()._sigmoid(inputs @ true_w + true_b)
     train_data = list(zip(inputs, targets))
 
-    model = Sequential(
-        [
-            LinearLayer(in_dim=3, out_dim=1),
-            Sigmoid(),
-            # LinearLayer(in_dim=2, out_dim=1),
-            # Sigmoid()
-        ]
-    )
-    criterion = MSE()
-    optimiser = SGD(model.params(), criterion, lr=lr, momentum=0.9)
+    # model = Sequential(
+    #     [
+    #         LinearLayer(in_dim=3, out_dim=1),
+    #         Sigmoid(),
+    #         # LinearLayer(in_dim=2, out_dim=1),
+    #         # Sigmoid()
+    #     ]
+    # )
+    
+        
+    model = DendriticLayer(32*32, 10)
+    
+    # criterion = MSE()
+    # optimiser = SGD(model.params(), criterion, lr=lr, momentum=0.9)
 
-    train_losses, outputs = train(train_data, model, criterion, optimiser, n_epochs)
-    plot_loss(train_losses)
-    plot_predictions(outputs[-1], targets)
 
-    print(f"final loss {train_losses[-1]}")
+    # train_losses, outputs = train(train_data, model, criterion, optimiser, n_epochs)
+    # plot_loss(train_losses)
+    # plot_predictions(outputs[-1], targets)
 
-    # print out final model params
-    final_params = model.params()[0]
-    print(
-        f"true W {true_w} model w {final_params.W} \n true b {true_b}, model b {final_params.b}"
-    )
+    # print(f"final loss {train_losses[-1]}")
+
+    # # print out final model params
+    # final_params = model.params()[0]
+    # print(
+    #     f"true W {true_w} model w {final_params.W} \n true b {true_b}, model b {final_params.b}"
+    # )
 
 
 if __name__ == "main":
