@@ -2,54 +2,51 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from typing import Callable, List, Tuple, Optional, Union
 
 
 class Sigmoid:
-    def _sigmoid(self, x: np.ndarray) -> np.ndarray:
+    def _sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
+    def forward(self, x):
         return self._sigmoid(x)
 
-    def backward(self, grad: np.ndarray) -> np.ndarray:
+    def backward(self, grad):
         return self._sigmoid(grad) * (1 - self._sigmoid(grad)) * grad
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
+    def __call__(self, x):
         return self.forward(x)
 
 
 class ReLU:
-    def forward(self, x: np.ndarray) -> np.ndarray:
+    def forward(self, x):
         return np.maximum(0, x)
 
-    def backward(self, grad: np.ndarray) -> np.ndarray:
+    def backward(self, grad):
         return np.where(grad > 0, 1, 0) * grad
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
+    def __call__(self, x):
         return self.forward(x)
 
 
 class MSE:
-    def __init__(self) -> None:
-        self.pred: Optional[np.ndarray] = None
-        self.target: Optional[np.ndarray] = None
+    def __init__(self):
+        self.pred = None
+        self.target = None
 
-    def forward(self, pred: np.ndarray, target: np.ndarray) -> float:
+    def forward(self, pred, target):
         self.pred, self.target = pred, target
         return np.mean((pred - target) ** 2)
 
-    def backward(self) -> np.ndarray:
+    def backward(self):
         return np.mean(0.5 * (self.pred - self.target)).reshape(1)
 
-    def __call__(self, pred: np.ndarray, target: np.ndarray) -> float:
+    def __call__(self, pred, target):
         return self.forward(pred, target)
 
 
 class SGD:
-    def __init__(
-        self, params: list, criterion: Callable, lr: float = 0.01, momentum: float = 0.9
-    ):
+    def __init__(self, params, criterion, lr=0.01, momentum=0.9):
         self.params = params
         self.criterion = criterion
         self.lr = lr
@@ -58,19 +55,19 @@ class SGD:
             [np.zeros_like(layer.W), np.zeros_like(layer.b)] for layer in self.params
         ]
 
-    def zero_grad(self) -> None:
+    def zero_grad(self):
         for layer in self.params:
             layer.dW = 0.0
             layer.db = 0.0
 
-    def step(self) -> None:
+    def step(self):
         for layer, update in zip(self.params, self.updates):
             update[0] = self.lr * layer.dW + self.momentum * update[0]
             update[1] = self.lr * layer.db + self.momentum * update[1]
             layer.W -= update[0]
             layer.b -= update[1]
 
-    def __call__(self) -> None:
+    def __call__(self):
         return self.step()
 
 
@@ -91,45 +88,45 @@ class Sequential:
                 params.append(layer)
         return params
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
+    def __call__(self, x):
         for layer in self.layers:
             x = layer(x)
         return x
 
 
 class LinearLayer:
-    def __init__(self, in_dim: int, out_dim: int) -> None:
-        self.W: np.ndarray = np.random.randn(out_dim, in_dim) * np.sqrt(
+    def __init__(self, in_dim, out_dim):
+        self.W = np.random.randn(out_dim, in_dim) * np.sqrt(
             2.0 / (in_dim + out_dim)
         )  # xavier init
-        self.b: np.ndarray = np.zeros(out_dim)
-        self.dW: Union[float, np.ndarray] = 0.0
-        self.db: Union[float, np.ndarray] = 0.0
-        self.x: Optional[np.ndarray] = None
+        self.b = np.zeros(out_dim)
+        self.dW = 0.0
+        self.db = 0.0
+        self.x = None
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
+    def forward(self, x):
         # print(f"x: {x}, self.W {self.W}, self.b {self.b}")
         self.x = x
         return self.W @ x + self.b
 
-    def backward(self, grad: np.ndarray) -> np.ndarray:
+    def backward(self, grad):
         # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
         self.dW = np.outer(grad, self.x)
         self.db = grad
         grad = self.W.T @ grad
         return grad
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
+    def __call__(self, x):
         return self.forward(x)
 
 
 def train(
-    train_data: List[Tuple[np.ndarray, np.ndarray]],
-    model: Sequential,
-    criterion: MSE,
-    optimiser: SGD,
-    n_epochs: int = 10,
-) -> Tuple[List[float], List[List[np.ndarray]]]:
+    train_data,
+    model,
+    criterion,
+    optimiser,
+    n_epochs=10,
+):
     train_losses = []
     outputs = []
     for epoch in tqdm(range(n_epochs)):
@@ -170,7 +167,7 @@ def plot_predictions(outputs, targets):
     plt.show()
 
 
-def main() -> None:
+def main():
     np.random.seed(42)
 
     # config
