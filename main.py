@@ -141,7 +141,7 @@ class SGD:
 
     def __call__(self):
         return self.step()
-    
+
 
 class Adam:
     def __init__(self, params, criterion, lr=0.01, beta1=0.9, beta2=0.999, eps=1e-8):
@@ -158,18 +158,22 @@ class Adam:
         self.v = []
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                self.m.append([
-                    cp.zeros_like(layer.dendrite_W),
-                    cp.zeros_like(layer.dendrite_b),
-                    cp.zeros_like(layer.soma_W),
-                    cp.zeros_like(layer.soma_b),
-                ])
-                self.v.append([
-                    cp.zeros_like(layer.dendrite_W),
-                    cp.zeros_like(layer.dendrite_b),
-                    cp.zeros_like(layer.soma_W),
-                    cp.zeros_like(layer.soma_b),
-                ])
+                self.m.append(
+                    [
+                        cp.zeros_like(layer.dendrite_W),
+                        cp.zeros_like(layer.dendrite_b),
+                        cp.zeros_like(layer.soma_W),
+                        cp.zeros_like(layer.soma_b),
+                    ]
+                )
+                self.v.append(
+                    [
+                        cp.zeros_like(layer.dendrite_W),
+                        cp.zeros_like(layer.dendrite_b),
+                        cp.zeros_like(layer.soma_W),
+                        cp.zeros_like(layer.soma_b),
+                    ]
+                )
             else:  # LinearLayer
                 self.m.append([cp.zeros_like(layer.W), cp.zeros_like(layer.b)])
                 self.v.append([cp.zeros_like(layer.W), cp.zeros_like(layer.b)])
@@ -189,8 +193,18 @@ class Adam:
         self.t += 1  # Increment global time step
         for i, layer in enumerate(self.params):
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                grads = [layer.dendrite_dW, layer.dendrite_db, layer.soma_dW, layer.soma_db]
-                params = [layer.dendrite_W, layer.dendrite_b, layer.soma_W, layer.soma_b]
+                grads = [
+                    layer.dendrite_dW,
+                    layer.dendrite_db,
+                    layer.soma_dW,
+                    layer.soma_db,
+                ]
+                params = [
+                    layer.dendrite_W,
+                    layer.dendrite_b,
+                    layer.soma_W,
+                    layer.soma_b,
+                ]
             else:  # LinearLayer
                 grads = [layer.dW, layer.db]
                 params = [layer.W, layer.b]
@@ -229,7 +243,7 @@ class Sequential:
             if hasattr(layer, "W") or hasattr(layer, "soma_W"):
                 params.append(layer)
         return params
-    
+
     def num_params(self):
         num_params = 0
         for layer in self.layers:
@@ -278,7 +292,9 @@ class DendriticLayer:
     def __init__(
         self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=3
     ):
-        assert strategy in ["random", "local-receptive-fields", "fully-connected"], "Invalid strategy"
+        assert strategy in ["random", "local-receptive-fields", "fully-connected"], (
+            "Invalid strategy"
+        )
 
         n_soma_connections = n_dendrites * n_neurons
 
@@ -330,10 +346,12 @@ class DendriticLayer:
                 )
             elif strategy == "local-receptive-fields":
                 # According to the description: "16 inputs are chosen from the 4 × 4 neighborhood"
-                assert n_dendrite_inputs == 16, "local-receptive-fields strategy requires exactly 16 dendrite inputs for a 4x4 neighborhood"
-                
+                assert n_dendrite_inputs == 16, (
+                    "local-receptive-fields strategy requires exactly 16 dendrite inputs for a 4x4 neighborhood"
+                )
+
                 image_size = int(cp.sqrt(in_dim))  # 28 for MNIST
-                
+
                 # Choose center pixel such that 4x4 neighborhood fits within image bounds
                 # For 4x4 grid centered at (center_row, center_col), we need:
                 # - Grid spans from (center_row-1, center_col-1) to (center_row+2, center_col+2)
@@ -341,10 +359,10 @@ class DendriticLayer:
                 # This ensures the full 4x4 grid is within [0, image_size-1] bounds
                 min_center = 1
                 max_center = image_size - 3  # 25 for 28x28 image
-                
+
                 center_row = cp.random.randint(min_center, max_center + 1)
                 center_col = cp.random.randint(min_center, max_center + 1)
-                
+
                 # Create 4x4 neighborhood around center pixel
                 # The 4x4 grid will be positioned such that center is at position (1,1) in the grid
                 input_indices = []
@@ -354,7 +372,7 @@ class DendriticLayer:
                         col = center_col + dc
                         idx = row * image_size + col
                         input_indices.append(idx)
-                
+
                 input_idx = cp.array(input_indices)
             elif strategy == "fully-connected":
                 # sample all inputs for a given dendrite
@@ -408,7 +426,9 @@ class DendriticLayer:
         return self.forward(x)
 
 
-def load_mnist_data(dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None):
+def load_mnist_data(
+    dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None
+):
     """
     Download and load the MNIST or Fashion-MNIST dataset.
 
@@ -425,14 +445,13 @@ def load_mnist_data(dataset="mnist", normalize=True, flatten=True, one_hot=True,
             y_train, y_test: Target labels
     """
     # Map dataset names to OpenML dataset identifiers
-    dataset_mapping = {
-        "mnist": "mnist_784",
-        "fashion-mnist": "Fashion-MNIST"
-    }
-    
+    dataset_mapping = {"mnist": "mnist_784", "fashion-mnist": "Fashion-MNIST"}
+
     if dataset not in dataset_mapping:
-        raise ValueError(f"Dataset must be one of {list(dataset_mapping.keys())}, got '{dataset}'")
-    
+        raise ValueError(
+            f"Dataset must be one of {list(dataset_mapping.keys())}, got '{dataset}'"
+        )
+
     dataset_name = dataset_mapping[dataset]
     print(f"Loading {dataset.upper()} dataset...")
 
@@ -557,9 +576,10 @@ def evaluate(
     test_loss = 0.0
     correct_pred = 0.0
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
-    for X, target in tqdm(create_batches(
-        X_test, y_test, batch_size, shuffle=False, drop_last=False
-    ), desc="Testing"):
+    for X, target in tqdm(
+        create_batches(X_test, y_test, batch_size, shuffle=False, drop_last=False),
+        desc="Testing",
+    ):
         # forward pass
         pred = model(X)
         batch_loss = criterion(pred, target)
@@ -577,9 +597,9 @@ def main():
     cp.random.seed(42)
 
     # config
-    n_epochs = 15
-    lr = 0.001 # 0.07 - SGD
-    v_lr = 0.0001 # 0.015 - SGD
+    n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
+    lr = 0.001  # 0.07 - SGD
+    v_lr = 0.0001  # 0.015 - SGD
     batch_size = 128
     in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
     n_classes = 10
@@ -587,13 +607,15 @@ def main():
     # model config
     n_dendrite_inputs = 16
     n_dendrites = 4
-    strategy = "random"
+    strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # data config
     dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
     subset_size = None
 
-    X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset, subset_size=subset_size)
+    X_train, y_train, X_test, y_test = load_mnist_data(
+        dataset=dataset, subset_size=subset_size
+    )
 
     criterion = CrossEntropy()
     model = Sequential(
@@ -626,13 +648,13 @@ def main():
     v_criterion = CrossEntropy()
     v_model = Sequential(
         [
-            LinearLayer(in_dim, 32),
+            LinearLayer(in_dim, 48),
             ReLU(),
-            LinearLayer(32, n_classes),
+            LinearLayer(48, n_classes),
         ]
     )
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
-    
+
     print(f"number of dendritic params: {model.num_params()}")
     print(f"number of vanilla params: {v_model.num_params()}")
 
@@ -671,10 +693,10 @@ def main():
         f"test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}"
     )
     print(
-        f"train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}"
+        f"train accuracy dendritic model {round(train_accuracy[-1] * 100, 1)}% vs vanilla {round(v_train_accuracy[-1] * 100, 1)}%"
     )
     print(
-        f"test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}"
+        f"test accuracy dendritic model {round(test_accuracy * 100, 1)}% vs vanilla {round(v_test_accuracy * 100, 1)}%"
     )
 
 

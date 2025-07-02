@@ -55,3 +55,8 @@ Dendritic model sometimes has considerable time to setup dendrtic inputs
 - Compare training time of both
 - Adam vs SGD for this task
 - Compare different number of layers, breadth vs dept
+
+
+## Notes
+
+For comparison: use 3 dendrite layers
