@@ -23,7 +23,9 @@ def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None
     print("Loading MNIST dataset...")
 
     # Download MNIST dataset
-    mnist = fetch_openml("mnist_784", version=1, as_frame=False, parser="auto", cache=True)
+    mnist = fetch_openml(
+        "mnist_784", version=1, as_frame=False, parser="auto", cache=True
+    )
     X, y = mnist.data, mnist.target.astype(int)
 
     # Split into train and test (last 10k samples for test, rest for train)
@@ -70,11 +72,14 @@ class Sigmoid:
         return 1 / (1 + np.exp(-x))
 
     def forward(self, x):
-        return self._sigmoid(x)
+        self.output = self._sigmoid(x)
+        return self.output
 
     def backward(self, grad):
-        return self._sigmoid(grad) * (1 - self._sigmoid(grad)) * grad
-
+        # Derivative of sigmoid: sigmoid(x) * (1 - sigmoid(x))
+        # where sigmoid(x) is the output from the forward pass
+        return self.output * (1 - self.output) * grad
+    
     def __call__(self, x):
         return self.forward(x)
 
@@ -101,11 +106,15 @@ class CrossEntropy:
 
 
 class ReLU:
+    def __init__(self):
+        self.input = None
+        
     def forward(self, x):
+        self.input = x
         return np.maximum(0, x)
 
     def backward(self, grad):
-        return np.where(grad > 0, grad, 0)
+        return np.where(self.input > 0, grad, 0)
 
     def __call__(self, x):
         return self.forward(x)
@@ -151,7 +160,7 @@ class SGD:
 
     def __call__(self):
         return self.step()
-    
+
 
 class DendriteSGD:
     def __init__(self, params, criterion, lr=0.01, momentum=0.9):
@@ -160,7 +169,13 @@ class DendriteSGD:
         self.lr = lr
         self.momentum = momentum
         self.updates = [
-            [np.zeros_like(layer.dendrite_W), np.zeros_like(layer.dendrite_b), np.zeros_like(layer.soma_W), np.zeros_like(layer.soma_b)] for layer in self.params
+            [
+                np.zeros_like(layer.dendrite_W),
+                np.zeros_like(layer.dendrite_b),
+                np.zeros_like(layer.soma_W),
+                np.zeros_like(layer.soma_b),
+            ]
+            for layer in self.params
         ]
 
     def zero_grad(self):
@@ -252,14 +267,18 @@ class DendriticLayer:
         #     f"input dimension {in_dim}, n_neurons: {n_neurons}, n_soma_connections: {n_soma_connections}, n_dendrite_connections: {n_dendrite_connections}"
         # )
 
-        self.dendrite_W = np.random.randn(n_soma_connections, in_dim)
+        self.dendrite_W = np.random.randn(n_soma_connections, in_dim) * np.sqrt(
+            2.0 / (n_soma_connections + in_dim)
+        )
         self.dendrite_b = np.zeros((n_soma_connections))
         self.dendrite_dW = 0.0
         self.dendrite_db = 0.0
 
         self.dendrite_activation = ReLU()
 
-        self.soma_W = np.random.randn(n_neurons, n_soma_connections)
+        self.soma_W = np.random.randn(n_neurons, n_soma_connections) * np.sqrt(
+            2.0 / (n_neurons + n_soma_connections)
+        )
         self.soma_b = np.zeros(n_neurons)
         self.soma_dW = 0.0
         self.soma_db = 0.0
@@ -314,12 +333,16 @@ class DendriticLayer:
 
     def backward(self, grad):
         # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
+
+        grad = self.soma_activation.backward(grad)
         
         # soma back pass, multiply with mask to keep only valid gradients
         self.soma_dW = np.outer(grad, self.soma_x) * self.soma_mask
         # self.db = grad
         soma_grad = self.soma_W.T @ grad
         
+        soma_grad = self.dendrite_activation.backward(soma_grad)
+
         # dendrite back pass
         self.dendrite_dW = np.outer(soma_grad, self.dendrite_x) * self.dendrite_mask
         # self.db = grad
@@ -336,7 +359,7 @@ def train(
     model,
     criterion,
     optimiser,
-    n_epochs=10,
+    n_epochs=2,
 ):
     train_losses = []
     accuracy = []
@@ -408,30 +431,34 @@ def main():
 
     # config
     n_epochs = 10
-    lr = 0.1
+    lr = 0.01
     in_dim = 28 * 28  # MNIST dimension
     n_classes = 10
 
     # load data
-    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=100)
-    
+    # subset_size=100
+    X_train, y_train, X_test, y_test = load_mnist_data()
+
     model = DendriticLayer(in_dim, n_classes)
     criterion = CrossEntropy()
     optimiser = DendriteSGD([model], criterion, lr=lr, momentum=0.9)
 
     # train model
-    train_losses, train_accuracy = train(X_train, y_train, model, criterion, optimiser, n_epochs)
+    train_losses, train_accuracy = train(
+        X_train, y_train, model, criterion, optimiser, n_epochs
+    )
     # run model evaluation
     test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
-    
+
     # plot
     plot_loss(train_losses)
     plot_accuracy(train_accuracy)
-    
+
     print(f"final train loss {train_losses[-1]}")
     print(f"final test loss {test_loss}")
     print(f"final train accuracy {train_accuracy[-1]}")
     print(f"final test accuracy {test_accuracy}")
+
 
 if __name__ == "main":
     main()
