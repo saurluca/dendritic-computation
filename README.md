@@ -26,3 +26,4 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - gpu viable (jax, cupy?)
 - baseline comparison model
 - parameter count 
+- use leaky relu

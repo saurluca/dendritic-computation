@@ -266,6 +266,9 @@ class LinearLayer:
         grad = self.W.T @ grad
         return grad
 
+    def num_params(self):
+        return self.W.size + self.b.size
+
     def __call__(self, x):
         return self.forward(x)
 
@@ -366,7 +369,10 @@ class DendriticLayer:
         self.dendrite_db = soma_grad
         dendrite_grad = self.dendrite_W.T @ soma_grad
         return dendrite_grad
-
+    
+    def num_params(self):
+        print(f"dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}")
+        return int(cp.sum(self.dendrite_mask) + self.dendrite_b.size + cp.sum(self.soma_mask) + self.soma_b.size)
     def __call__(self, x):
         return self.forward(x)
 
@@ -447,15 +453,11 @@ def plot_accuracy(accuracy):
 
 def main():
     # for repoducability
-    try:
-        cp.random.seed(42)
-    except Exception:
-        # Fallback if random seed fails (shouldn't happen if import check worked)
-        pass
+    cp.random.seed(42)
 
     # config
     n_epochs = 10
-    lr = 0.001
+    lr = 0.01
     in_dim = 28 * 28  # MNIST dimension
     n_classes = 10
 
@@ -465,9 +467,16 @@ def main():
 
     criterion = CrossEntropy()
     model = Sequential([
-        DendriticLayer(in_dim, n_classes)
+        DendriticLayer(in_dim, n_classes, n_dendrite_inputs=16, n_dendrites=16)
     ])
     optimiser = DendriteSGD(model.params(), criterion, lr=lr, momentum=0.9)
+    
+    v_criterion = CrossEntropy()
+    v_model = Sequential([
+        LinearLayer(in_dim, n_classes)
+    ])
+    v_optimiser = SGD(v_model.params(), v_criterion, lr=lr, momentum=0.9)
+
 
     # train model
     train_losses, train_accuracy = train(
@@ -484,7 +493,28 @@ def main():
     print(f"final test loss {test_loss}")
     print(f"final train accuracy {train_accuracy[-1]}")
     print(f"final test accuracy {test_accuracy}")
+    
+    
+    # train vani
+    v_train_losses, v_train_accuracy = train(
+        X_train, y_train, v_model, v_criterion, v_optimiser, n_epochs
+    )
+    # run model evaluation
+    v_test_loss, v_test_accuracy = evaluate(X_test, y_test, v_model, v_criterion)
+    
+    # plot both models in comparison
+    plt.plot(train_losses, label="Dendritic")
+    plt.plot(v_train_losses, label="Vanilla")
+    plt.legend()
+    plt.show()
+    
+    print(f"final train loss {v_train_losses[-1]}")
+    print(f"final test loss {v_test_loss}")
+    print(f"final train accuracy {v_train_accuracy[-1]}")
+    print(f"final test accuracy {v_test_accuracy}")
 
+    print(f"number of dendritic params: {model.params()[0].num_params()}")
+    print(f"number of vanilla params: {v_model.params()[0].num_params()}")
 
 # if __name__ == "main":
 #     main()
