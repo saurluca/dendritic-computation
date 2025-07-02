@@ -624,6 +624,7 @@ def main():
     # model config
     n_dendrite_inputs = 16
     n_dendrites = 16
+    n_neurons = 512
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # data config
@@ -639,13 +640,13 @@ def main():
         [
             DendriticLayer(
                 in_dim,
-                256,
+                n_neurons,
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
             ),
             LeakyReLU(),
-            LinearLayer(256, n_classes),
+            LinearLayer(n_neurons, n_classes),
         ]
     )
     optimiser = Adam(model.params(), criterion, lr=lr)
@@ -653,9 +654,9 @@ def main():
     v_criterion = CrossEntropy()
     v_model = Sequential(
         [
-            LinearLayer(in_dim, 96),
+            LinearLayer(in_dim, 64),
             LeakyReLU(),
-            LinearLayer(96, n_classes),
+            LinearLayer(64, n_classes),
         ]
     )
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
