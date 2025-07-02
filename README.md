@@ -13,3 +13,9 @@ Neuroscience, 28, 503-532.
 
 2. Chavlis, S. and Poirazi, P., 2025. Dendrites endow artificial neural networks with
 accurate, robust and parameter-efficient learning. Nature Communications, 16(1), p.943.
+
+
+
+## Ideas:
+
+- Improve weight initilisation

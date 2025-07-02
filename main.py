@@ -93,9 +93,10 @@ class Sequential:
             x = layer(x)
         return x
 
-    
+
 class LinearLayer:
     """A fully connected, feed forward layer"""
+
     def __init__(self, in_dim, out_dim):
         self.W = np.random.randn(out_dim, in_dim) * np.sqrt(
             2.0 / (in_dim + out_dim)
@@ -119,51 +120,80 @@ class LinearLayer:
 
     def __call__(self, x):
         return self.forward(x)
-    
-    
+
+
 class DendriticLayer:
     """A sparse dendritic layer, consiting of dendrites and somas"""
 
-    def __init__(self, in_dim, out_dim, strategy="random", n_dendrite_inputs=16, n_dendrites =3):
-        self.W = np.random.randn(out_dim, in_dim) * np.sqrt(
-            2.0 / (in_dim + out_dim)
-        )  # xavier init
-        self.b = np.zeros(out_dim)
-        self.dW = 0.0
-        self.db = 0.0
-        self.x = None
-                
+    def __init__(
+        self, in_dim, out_dim, strategy="random", n_dendrite_inputs=16, n_dendrites=3
+    ):
         assert strategy == "random", "Invalid strategy"
         
-        # sample dendrite masks
-        self.dendrite_mask = []
+        n_neurons = out_dim  # the number of neurons determins the size of the output
+        n_soma_connections = n_dendrites * n_neurons # number of possible connection from dendrites to somas
+        n_dendrite_connections = n_soma_connections * in_dim # number of possible connections from input to dendrites
+        print(f"input dimension {in_dim}, n_neurons: {n_neurons}, n_soma_connections: {n_soma_connections}, n_dendrite_connections: {n_dendrite_connections}")
+    
+        self.dendrite_W = np.random.randn(n_soma_connections, n_dendrite_connections)
+        self.dendrite_b = np.zeros(n_soma_connections, n_dendrite_connections)
+        self.dendrite_dW = 0.0
+        self.dendrite_db = 0.0
         
-        # sample for each dendrite
-        for i in range(n_dendrites):
-            dendrite_inputs = []
-            for k in range(n_dendrite_inputs):
-                # sample for each inpit
-                if strategy == "random":
-                    dendrite_inputs.append(np.random.randint(0, in_dim))
-            self.dendrite_mask.append(dendrite_inputs)
-        print("final dendrite mask", self.dendrite_mask)          
-        
+        self.soma_W = np.random.randn(n_neurons, n_soma_connections)
+        self.soma_b = np.zeros(n_neurons, n_soma_connections)
+        self.soma_dW = 0.0
+        self.soma_db = 0.0
 
+        # inputs to save for backprop
+        self.x_dendrite = None
+        self.x_soma = None
+        
+        # sample soma mask:
+        # [[1, 1, 0, 0]
+        #  [0, 0, 1, 1]]
+        # number of 1 per row is n_dendrites, rest 0. every column only has 1 entry
+        # number of rows equals n_neurons, number of columns eqais n_soma_connections
+        # it is a step pattern, so the first n_dendrites entries of the first row are one.
+        self.soma_mask = np.zeros((n_neurons, n_soma_connections))
+        for i in range(n_neurons):
+            start_idx = i * n_dendrites
+            end_idx = start_idx + n_dendrites
+            self.soma_mask[i, start_idx:end_idx] = 1
+        
+        # mask out unneeded weights, thus making weights sparse
+        self.soma_W = self.soma_W * self.soma_mask
+
+        # sample dendrite mask
+        # for each dendrite sample n_dendrite_inputs from the input array
+        self.dendrite_mask = np.zeros((n_soma_connections, n_dendrite_connections))
+        for i in range(n_soma_connections):
+            if strategy == "random":
+                # sample without replacement from possible input for a given dendrite from the whole input
+                input_idx = np.random.choice(np.arange(in_dim), size=n_dendrite_inputs, replace=False) 
+            self.dendrite_mask[i, input_idx] = 1
+            
+        # mask out unneeded weights, thus making weights sparse
+        self.dendrite_W = self.dendrite_W * self.dendrite_mask
+        
+        
+        
     def forward(self, x):
         # print(f"x: {x}, self.W {self.W}, self.b {self.b}")
-        self.x = x
-        return self.W @ x + self.b
+        # self.x = x
+        # return self.W @ x + self.b
+        pass
 
     def backward(self, grad):
         # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
-        self.dW = np.outer(grad, self.x)
-        self.db = grad
-        grad = self.W.T @ grad
-        return grad
+        # self.dW = np.outer(grad, self.x)
+        # self.db = grad
+        # grad = self.W.T @ grad
+        # return grad
+        pass
 
     def __call__(self, x):
         return self.forward(x)
-    
 
 
 def train(
@@ -236,13 +266,11 @@ def main():
     #         # Sigmoid()
     #     ]
     # )
-    
-        
-    model = DendriticLayer(32*32, 10)
-    
+
+    model = DendriticLayer(32 * 32, 10)
+
     # criterion = MSE()
     # optimiser = SGD(model.params(), criterion, lr=lr, momentum=0.9)
-
 
     # train_losses, outputs = train(train_data, model, criterion, optimiser, n_epochs)
     # plot_loss(train_losses)
