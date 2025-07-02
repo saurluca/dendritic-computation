@@ -21,4 +21,8 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - Improve weight initilisation
 - shuffle training data for each epoch
 - implement the other 2 dendric input strategyies
-- implement multiple layers 
+- implement multiple layers
+- batch processing
+- gpu viable (jax, cupy?)
+- baseline comparison model
+- parameter count 

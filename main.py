@@ -214,7 +214,7 @@ class Sequential:
         """Return a list of layers that have a Weight vectors"""
         params = []
         for layer in self.layers:
-            if hasattr(layer, "W"):
+            if hasattr(layer, "W") or hasattr(layer, "soma_W"):
                 params.append(layer)
         return params
 
@@ -439,11 +439,21 @@ def main():
 
     # load data
     # subset_size=100
-    X_train, y_train, X_test, y_test = load_mnist_data()
+    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=1000)
 
-    model = DendriticLayer(in_dim, n_classes)
     criterion = CrossEntropy()
-    optimiser = DendriteSGD([model], criterion, lr=lr, momentum=0.9)
+    # model = DendriticLayer(in_dim, n_classes)
+    # params = [model]
+    # optimiser = DendriteSGD(params, criterion, lr=lr, momentum=0.9)
+    
+    model = Sequential([
+        DendriticLayer(in_dim, 100),
+        DendriticLayer(100, 100), 
+        DendriticLayer(100, n_classes)
+    ])
+    params = model.params()
+    optimiser = DendriteSGD(params, criterion, lr=lr, momentum=0.9)
+
 
     # train model
     train_losses, train_accuracy = train(
@@ -462,8 +472,8 @@ def main():
     print(f"final test accuracy {test_accuracy}")
 
 
-if __name__ == "main":
-    main()
+# if __name__ == "main":
+#     main()
 
 
 main()
