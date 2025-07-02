@@ -161,60 +161,50 @@ class SGD:
         self.criterion = criterion
         self.lr = lr
         self.momentum = momentum
-        self.updates = [
-            [cp.zeros_like(layer.W), cp.zeros_like(layer.b)] for layer in self.params
-        ]
+        
+        # Initialize updates based on layer type
+        self.updates = []
+        for layer in self.params:
+            if hasattr(layer, 'dendrite_W'):  # DendriticLayer
+                self.updates.append([
+                    cp.zeros_like(layer.dendrite_W),
+                    cp.zeros_like(layer.dendrite_b),
+                    cp.zeros_like(layer.soma_W),
+                    cp.zeros_like(layer.soma_b),
+                ])
+            else:  # LinearLayer
+                self.updates.append([
+                    cp.zeros_like(layer.W),
+                    cp.zeros_like(layer.b)
+                ])
 
     def zero_grad(self):
         for layer in self.params:
-            layer.dW = 0.0
-            layer.db = 0.0
+            if hasattr(layer, 'dendrite_W'):  # DendriticLayer
+                layer.dendrite_dW = 0.0
+                layer.dendrite_db = 0.0
+                layer.soma_dW = 0.0
+                layer.soma_db = 0.0
+            else:  # LinearLayer
+                layer.dW = 0.0
+                layer.db = 0.0
 
     def step(self):
         for layer, update in zip(self.params, self.updates):
-            update[0] = self.lr * layer.dW + self.momentum * update[0]
-            update[1] = self.lr * layer.db + self.momentum * update[1]
-            layer.W -= update[0]
-            layer.b -= update[1]
-
-    def __call__(self):
-        return self.step()
-
-
-class DendriteSGD:
-    def __init__(self, params, criterion, lr=0.01, momentum=0.9):
-        self.params = params
-        self.criterion = criterion
-        self.lr = lr
-        self.momentum = momentum
-        self.updates = [
-            [
-                cp.zeros_like(layer.dendrite_W),
-                cp.zeros_like(layer.dendrite_b),
-                cp.zeros_like(layer.soma_W),
-                cp.zeros_like(layer.soma_b),
-            ]
-            for layer in self.params
-        ]
-
-    def zero_grad(self):
-        for layer in self.params:
-            layer.dendrite_dW = 0.0
-            layer.dendrite_db = 0.0
-            layer.soma_dW = 0.0
-            layer.soma_db = 0.0
-
-    def step(self):
-        for layer, update in zip(self.params, self.updates):
-            # print(f"shape of db {layer.dendrite_db.shape} shape of b {layer.dendrite_b.shape}")
-            update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
-            update[1] = self.lr * layer.dendrite_db + self.momentum * update[1]
-            update[2] = self.lr * layer.soma_dW + self.momentum * update[2]
-            update[3] = self.lr * layer.soma_db + self.momentum * update[3]
-            layer.dendrite_W -= update[0]
-            layer.dendrite_b -= update[1]
-            layer.soma_W -= update[2]
-            layer.soma_b -= update[3]
+            if hasattr(layer, 'dendrite_W'):  # DendriticLayer
+                update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
+                update[1] = self.lr * layer.dendrite_db + self.momentum * update[1]
+                update[2] = self.lr * layer.soma_dW + self.momentum * update[2]
+                update[3] = self.lr * layer.soma_db + self.momentum * update[3]
+                layer.dendrite_W -= update[0]
+                layer.dendrite_b -= update[1]
+                layer.soma_W -= update[2]
+                layer.soma_b -= update[3]
+            else:  # LinearLayer
+                update[0] = self.lr * layer.dW + self.momentum * update[0]
+                update[1] = self.lr * layer.db + self.momentum * update[1]
+                layer.W -= update[0]
+                layer.b -= update[1]
 
     def __call__(self):
         return self.step()
@@ -454,22 +444,6 @@ def evaluate(
     return float(normalised_test_loss), float(accuracy)  # Convert to float for printing
 
 
-def plot_loss(losses):
-    plt.plot(losses)
-    plt.title("Loss over epochs")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.show()
-
-
-def plot_accuracy(accuracy):
-    plt.plot(accuracy)
-    plt.title("Accuarcy over epochs")
-    plt.xlabel("Epoch")
-    plt.ylabel("Accuarcy")
-    plt.show()
-
-
 def main():
     # for repoducability
     cp.random.seed(42)
@@ -478,26 +452,32 @@ def main():
     n_epochs = 15
     lr = 0.07
     v_lr = 0.015
+    momentum = 0.9
     batch_size = 128
     in_dim = 28 * 28  # MNIST dimension
     n_classes = 10
+    
+    # model config
+    n_dendrite_inputs = 16
+    n_dendrites = 32
+    
+    # data config
+    subset_size = None
 
-    # load data
-    # subset_size=100
-    X_train, y_train, X_test, y_test = load_mnist_data()
+    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=subset_size)
 
     criterion = CrossEntropy()
     model = Sequential([
-        DendriticLayer(in_dim, n_classes, n_dendrite_inputs=16, n_dendrites=32)
+        DendriticLayer(in_dim, n_classes, n_dendrite_inputs=n_dendrite_inputs, n_dendrites=n_dendrites)
     ])
-    optimiser = DendriteSGD(model.params(), criterion, lr=lr, momentum=0.9)
+    optimiser = SGD(model.params(), criterion, lr=lr, momentum=momentum)
     
     v_criterion = CrossEntropy()
     v_model = Sequential([
         LinearLayer(in_dim, n_classes),
         ReLU()
     ])
-    v_optimiser = SGD(v_model.params(), v_criterion, lr=v_lr, momentum=0.9)
+    v_optimiser = SGD(v_model.params(), v_criterion, lr=v_lr, momentum=momentum)
 
     # train model
     train_losses, train_accuracy = train(

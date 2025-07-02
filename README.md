@@ -30,6 +30,7 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [ ] implement Adam
 - [ ] weight decay
 - [ ] optional: implement dataloader class
+- [ ] Combine both SGD classes
 
 
 ## Findings
@@ -40,4 +41,9 @@ Larger training data is more important. Vanilla has better results with fewer da
 
 Vanilla model requires lower learning rate, coverges slower
 
-Vanilla model looses a good amount of performance if the train batches are not shuffled every epoch. Higher train / test error and lower accuracy. Dendrite model does not suffer from same problems.
+Vanilla model looses a good amount of performance if the train batches are not shuffled every epoch. Higher train / test error and lower accuracy (0.92 vs 0.83). Dendrite model does not suffer from same problems. While dendritic model largly stays the same.
+
+
+## Explore
+
+- Effect of momentum on both
