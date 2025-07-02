@@ -136,6 +136,22 @@ class ReLU:
 
     def __call__(self, x):
         return self.forward(x)
+    
+
+class LeakyReLU:
+    def __init__(self, alpha=0.1):
+        self.alpha = alpha
+        self.input = None
+        
+    def forward(self, x):
+        self.input = x
+        return cp.where(x > 0, x, self.alpha * x)
+    
+    def backward(self, grad):
+        return cp.where(self.input > 0, grad, self.alpha * grad)
+    
+    def __call__(self, x):
+        return self.forward(x)
 
 
 class MSE:
@@ -282,9 +298,7 @@ class DendriticLayer:
         assert strategy == "random", "Invalid strategy"
 
         n_neurons = out_dim  # the number of neurons determins the size of the output
-        n_soma_connections = (
-            n_dendrites * n_neurons
-        )  # number of possible connection from dendrites to somas
+        n_soma_connections = (n_dendrites * n_neurons) 
         # print(
         #     f"input dimension {in_dim}, n_neurons: {n_neurons}, n_soma_connections: {n_soma_connections}, n_dendrite_connections: {n_dendrite_connections}"
         # )
@@ -296,7 +310,7 @@ class DendriticLayer:
         self.dendrite_dW = 0.0
         self.dendrite_db = 0.0
 
-        self.dendrite_activation = ReLU()
+        self.dendrite_activation = LeakyReLU()
 
         self.soma_W = cp.random.randn(n_neurons, n_soma_connections) * cp.sqrt(
             2.0 / (n_soma_connections)
@@ -305,7 +319,7 @@ class DendriticLayer:
         self.soma_dW = 0.0
         self.soma_db = 0.0
 
-        self.soma_activation = ReLU()
+        self.soma_activation = LeakyReLU()
 
         # inputs to save for backprop
         self.dendrite_x = None
@@ -371,8 +385,9 @@ class DendriticLayer:
         return dendrite_grad
     
     def num_params(self):
-        print(f"dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}")
+        print(f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}")
         return int(cp.sum(self.dendrite_mask) + self.dendrite_b.size + cp.sum(self.soma_mask) + self.soma_b.size)
+ 
     def __call__(self, x):
         return self.forward(x)
 
@@ -477,7 +492,6 @@ def main():
     ])
     v_optimiser = SGD(v_model.params(), v_criterion, lr=lr, momentum=0.9)
 
-
     # train model
     train_losses, train_accuracy = train(
         X_train, y_train, model, criterion, optimiser, n_epochs
@@ -508,10 +522,10 @@ def main():
     plt.legend()
     plt.show()
     
-    print(f"final train loss {v_train_losses[-1]}")
-    print(f"final test loss {v_test_loss}")
-    print(f"final train accuracy {v_train_accuracy[-1]}")
-    print(f"final test accuracy {v_test_accuracy}")
+    print(f"final train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}")
+    print(f"final test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}")
+    print(f"final train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}")
+    print(f"final test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}")
 
     print(f"number of dendritic params: {model.params()[0].num_params()}")
     print(f"number of vanilla params: {v_model.params()[0].num_params()}")
