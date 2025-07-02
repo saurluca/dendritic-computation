@@ -141,6 +141,76 @@ class SGD:
 
     def __call__(self):
         return self.step()
+    
+
+class Adam:
+    def __init__(self, params, criterion, lr=0.01, beta1=0.9, beta2=0.999, eps=1e-8):
+        self.params = params
+        self.criterion = criterion
+        self.lr = lr
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.eps = eps
+        self.t = 0  # Global time step, increments once per batch
+
+        # Initialize moment estimates based on layer type
+        self.m = []
+        self.v = []
+        for layer in self.params:
+            if hasattr(layer, "dendrite_W"):  # DendriticLayer
+                self.m.append([
+                    cp.zeros_like(layer.dendrite_W),
+                    cp.zeros_like(layer.dendrite_b),
+                    cp.zeros_like(layer.soma_W),
+                    cp.zeros_like(layer.soma_b),
+                ])
+                self.v.append([
+                    cp.zeros_like(layer.dendrite_W),
+                    cp.zeros_like(layer.dendrite_b),
+                    cp.zeros_like(layer.soma_W),
+                    cp.zeros_like(layer.soma_b),
+                ])
+            else:  # LinearLayer
+                self.m.append([cp.zeros_like(layer.W), cp.zeros_like(layer.b)])
+                self.v.append([cp.zeros_like(layer.W), cp.zeros_like(layer.b)])
+
+    def zero_grad(self):
+        for layer in self.params:
+            if hasattr(layer, "dendrite_W"):  # DendriticLayer
+                layer.dendrite_dW = 0.0
+                layer.dendrite_db = 0.0
+                layer.soma_dW = 0.0
+                layer.soma_db = 0.0
+            else:  # LinearLayer
+                layer.dW = 0.0
+                layer.db = 0.0
+
+    def step(self):
+        self.t += 1  # Increment global time step
+        for i, layer in enumerate(self.params):
+            if hasattr(layer, "dendrite_W"):  # DendriticLayer
+                grads = [layer.dendrite_dW, layer.dendrite_db, layer.soma_dW, layer.soma_db]
+                params = [layer.dendrite_W, layer.dendrite_b, layer.soma_W, layer.soma_b]
+            else:  # LinearLayer
+                grads = [layer.dW, layer.db]
+                params = [layer.W, layer.b]
+
+            # Update moment estimates and parameters for each parameter
+            for j, (grad, param) in enumerate(zip(grads, params)):
+                # Update first moment estimate
+                self.m[i][j] = self.beta1 * self.m[i][j] + (1 - self.beta1) * grad
+                # Update second moment estimate
+                self.v[i][j] = self.beta2 * self.v[i][j] + (1 - self.beta2) * (grad**2)
+
+                # Bias correction
+                m_hat = self.m[i][j] / (1 - self.beta1**self.t)
+                v_hat = self.v[i][j] / (1 - self.beta2**self.t)
+
+                # Update parameters
+                param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps)
+
+    def __call__(self):
+        return self.step()
 
 
 class Sequential:
@@ -461,16 +531,15 @@ def main():
 
     # config
     n_epochs = 15
-    lr = 0.07
-    v_lr = 0.015
-    momentum = 0.9
+    lr = 0.001 # 0.07
+    v_lr = 0.0001 # 0.015
     batch_size = 128
     in_dim = 28 * 28  # MNIST dimensions
     n_classes = 10
 
     # model config
     n_dendrite_inputs = 16
-    n_dendrites = 32
+    n_dendrites = 16
 
     # data config
     subset_size = None
@@ -488,24 +557,22 @@ def main():
             )
         ]
     )
-    optimiser = SGD(model.params(), criterion, lr=lr, momentum=momentum)
+    optimiser = Adam(model.params(), criterion, lr=lr)
 
     v_criterion = CrossEntropy()
     v_model = Sequential([LinearLayer(in_dim, n_classes), ReLU()])
-    v_optimiser = SGD(v_model.params(), v_criterion, lr=v_lr, momentum=momentum)
+    v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
 
-    # train dendritic model
+    print("Training dendritic model...")
     train_losses, train_accuracy = train(
         X_train, y_train, model, criterion, optimiser, n_epochs, batch_size
     )
-    # run model evaluation
     test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
 
-    # train vanilla model
+    print("Training vanilla model...")
     v_train_losses, v_train_accuracy = train(
         X_train, y_train, v_model, v_criterion, v_optimiser, n_epochs, batch_size
     )
-    # run model evaluation
     v_test_loss, v_test_accuracy = evaluate(X_test, y_test, v_model, v_criterion)
 
     # # plot accuracy of vanilla model vs dendritic model

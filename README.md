@@ -48,3 +48,5 @@ Vanilla model looses a good amount of performance if the train batches are not s
 
 - Effect of momentum on both
 - Compare training time of both
+- Adam vs SGD for this task
+- Compare different number of layers, breadth vs dept
