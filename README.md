@@ -28,6 +28,7 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [x] parameter count 
 - [x] use leaky relu
 - [ ] implement Adam
+- [ ] weight decay
 
 
 ## Findings

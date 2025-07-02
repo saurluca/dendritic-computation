@@ -106,18 +106,36 @@ class CrossEntropy:
     def __init__(self):
         self.softmax_output = None
         self.target = None
+        self.batch_size = None
 
     def forward(self, logits, target):
-        # Apply softmax
-        exp_logits = cp.exp(logits - cp.max(logits))
-        self.softmax_output = exp_logits / cp.sum(exp_logits)
+        # Handle both single samples and batches
+        if logits.ndim == 1:
+            # Single sample case - reshape to batch of size 1
+            logits = logits.reshape(1, -1)
+            target = target.reshape(1, -1)
+        
+        # Apply softmax per sample (along axis=1)
+        # Subtract max for numerical stability, then exponentiate
+        exp_logits = cp.exp(logits - cp.max(logits, axis=1, keepdims=True))
+        # Divide by sum of exponentiated logits per sample (along axis=1)
+        self.softmax_output = exp_logits / cp.sum(exp_logits, axis=1, keepdims=True)
+        
         self.target = target
+        self.batch_size = logits.shape[0] # Store batch size
+        
+        # Compute cross entropy loss per sample, then average over the batch
+        # Use a small epsilon for numerical stability with log(0)
+        log_softmax = cp.log(self.softmax_output + 1e-15)
+        # Only consider the log-probabilities of the true classes
+        loss_per_sample = -cp.sum(target * log_softmax, axis=1) # Sum over classes for each sample
 
-        # Compute cross entropy loss
-        return -cp.sum(target * cp.log(self.softmax_output + 1e-15))
+        # Return the average loss over the batch
+        return cp.mean(loss_per_sample)
 
     def backward(self):
-        return self.softmax_output - self.target
+        grad = (self.softmax_output - self.target) / self.batch_size
+        return grad
 
     def __call__(self, logits, target):
         return self.forward(logits, target)
@@ -152,22 +170,6 @@ class LeakyReLU:
     
     def __call__(self, x):
         return self.forward(x)
-
-
-class MSE:
-    def __init__(self):
-        self.pred = None
-        self.target = None
-
-    def forward(self, pred, target):
-        self.pred, self.target = pred, target
-        return cp.mean((pred - target) ** 2)
-
-    def backward(self):
-        return cp.mean(0.5 * (self.pred - self.target)).reshape(1)
-
-    def __call__(self, pred, target):
-        return self.forward(pred, target)
 
 
 class SGD:
@@ -264,7 +266,7 @@ class LinearLayer:
     def __init__(self, in_dim, out_dim):
         self.W = cp.random.randn(out_dim, in_dim) * cp.sqrt(
             2.0 / (in_dim)
-        )  # xavier init
+        )  # He init
         self.b = cp.zeros(out_dim)
         self.dW = 0.0
         self.db = 0.0
@@ -273,13 +275,14 @@ class LinearLayer:
     def forward(self, x):
         # print(f"x: {x}, self.W {self.W}, self.b {self.b}")
         self.x = x
-        return self.W @ x + self.b
+        return x @ self.W.T + self.b
 
     def backward(self, grad):
         # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
-        self.dW = cp.outer(grad, self.x)
-        self.db = grad
-        grad = self.W.T @ grad
+        # self.dW = cp.outer(grad, self.x)
+        self.dW = grad.T @ self.x
+        self.db = grad.sum(axis=0)
+        grad = grad @ self.W
         return grad
 
     def num_params(self):
@@ -392,7 +395,7 @@ class DendriticLayer:
         return self.forward(x)
 
 
-def create_batches(X, y, batch_size, shuffle=True):
+def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
     n_samples = len(X)
     # shuffle data
     if shuffle:
@@ -402,6 +405,8 @@ def create_batches(X, y, batch_size, shuffle=True):
         y = y[indices]
     
     for i in range(0, n_samples, batch_size):
+        if drop_last and i + batch_size > n_samples:
+            break
         X_batch = X[i:i+batch_size]
         y_batch = y[i:i+batch_size]
         yield X_batch, y_batch
@@ -424,14 +429,14 @@ def train(
     for epoch in tqdm(range(n_epochs)):
         train_loss = 0.0
         correct_pred = 0.0
-        # TODO shuffle train data ach epoch
-        for X, target in zip(X_train, y_train):
+        for X, target in create_batches(X_train, y_train, batch_size, shuffle=True):
             # forward pass
             pred = model(X)
             loss = criterion(pred, target)
             train_loss += loss
-            # if most likely prediction eqauls target add to correct predictions
-            correct_pred += cp.argmax(pred) == cp.argmax(target)
+            # if most likely prediction equals target add to correct predictions
+            batch_correct = cp.sum(cp.argmax(pred, axis=1) == cp.argmax(target, axis=1))
+            correct_pred += batch_correct
 
             # backward pass
             optimiser.zero_grad()
@@ -452,17 +457,19 @@ def evaluate(
     y_test,
     model,
     criterion,
+    batch_size=128,
 ):
     n_samples = len(X_test)
     test_loss = 0.0
     correct_pred = 0.0
-    for X, target in zip(X_test, y_test):
+    for X, target in create_batches(X_test, y_test, batch_size, shuffle=False, drop_last=False):
         # forward pass
         pred = model(X)
         loss = criterion(pred, target)
         test_loss += loss
         # if most likely prediction eqauls target add to correct predictions
-        correct_pred += cp.argmax(pred) == cp.argmax(target)
+        batch_correct = cp.sum(cp.argmax(pred, axis=1) == cp.argmax(target, axis=1))
+        correct_pred += batch_correct
     normalised_test_loss = test_loss / n_samples
     accuracy = correct_pred / n_samples
     return float(normalised_test_loss), float(accuracy)  # Convert to float for printing
@@ -499,28 +506,27 @@ def main():
     # subset_size=100
     X_train, y_train, X_test, y_test = load_mnist_data(subset_size=10000)
 
-    criterion = CrossEntropy()
-    model = Sequential([
-        DendriticLayer(in_dim, n_classes, n_dendrite_inputs=16, n_dendrites=32)
-    ])
-    optimiser = DendriteSGD(model.params(), criterion, lr=lr, momentum=0.9)
+    # criterion = CrossEntropy()
+    # model = Sequential([
+    #     DendriticLayer(in_dim, n_classes, n_dendrite_inputs=16, n_dendrites=32)
+    # ])
+    # optimiser = DendriteSGD(model.params(), criterion, lr=lr, momentum=0.9)
     
     v_criterion = CrossEntropy()
     v_model = Sequential([
-        LinearLayer(in_dim, n_classes)
+        LinearLayer(in_dim, n_classes),
+        ReLU()
     ])
     v_optimiser = SGD(v_model.params(), v_criterion, lr=lr, momentum=0.9)
 
     # train model
-    train_losses, train_accuracy = train(
-        X_train, y_train, model, criterion, optimiser, n_epochs, batch_size
-    )
-    # run model evaluation
-    test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
+    # train_losses, train_accuracy = train(
+    #     X_train, y_train, model, criterion, optimiser, n_epochs, batch_size
+    # )
+    # # run model evaluation
+    # test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
 
-    # plot
-    plot_accuracy(train_accuracy)
-    
+
     # train vani
     v_train_losses, v_train_accuracy = train(
         X_train, y_train, v_model, v_criterion, v_optimiser, n_epochs, batch_size
@@ -528,19 +534,27 @@ def main():
     # run model evaluation
     v_test_loss, v_test_accuracy = evaluate(X_test, y_test, v_model, v_criterion)
     
-    # plot both models in comparison
-    plt.plot(train_losses, label="Dendritic")
-    plt.plot(v_train_losses, label="Vanilla")
+    # # plot accuracy of vanilla model vs dendritic model
+    plt.plot(v_train_accuracy, label="Vanilla")
+    # plt.plot(train_accuracy, label="Dendritic")
+    plt.title("Accuracy over epochs")
     plt.legend()
     plt.show()
     
-    print(f"final train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}")
-    print(f"final test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}")
-    print(f"final train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}")
-    print(f"final test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}")
+    # # plot both models in comparison
+    plt.plot(v_train_losses, label="Vanilla")
+    # plt.plot(train_losses, label="Dendritic")
+    plt.title("Loss over epochs")
+    plt.legend()
+    plt.show()
+    
+    # print(f"final train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}")
+    # print(f"final test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}")
+    # print(f"final train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}")
+    # print(f"final test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}")
 
-    print(f"number of dendritic params: {model.params()[0].num_params()}")
-    print(f"number of vanilla params: {v_model.params()[0].num_params()}")
+    # print(f"number of dendritic params: {model.params()[0].num_params()}")
+    # print(f"number of vanilla params: {v_model.params()[0].num_params()}")
 
 # if __name__ == "main":
 #     main()
