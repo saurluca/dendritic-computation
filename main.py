@@ -401,11 +401,12 @@ class DendriticLayer:
         return self.forward(x)
 
 
-def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None):
+def load_mnist_data(dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None):
     """
-    Download and load the MNIST dataset.
+    Download and load the MNIST or Fashion-MNIST dataset.
 
     Args:
+        dataset (str): Dataset to load - either "mnist" or "fashion-mnist"
         normalize (bool): If True, normalize pixel values to [0, 1]
         flatten (bool): If True, flatten 28x28 images to 784-dimensional vectors
         one_hot (bool): If True, convert labels to one-hot encoding
@@ -416,13 +417,23 @@ def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None
             X_train, X_test: Input features
             y_train, y_test: Target labels
     """
-    print("Loading MNIST dataset...")
+    # Map dataset names to OpenML dataset identifiers
+    dataset_mapping = {
+        "mnist": "mnist_784",
+        "fashion-mnist": "Fashion-MNIST"
+    }
+    
+    if dataset not in dataset_mapping:
+        raise ValueError(f"Dataset must be one of {list(dataset_mapping.keys())}, got '{dataset}'")
+    
+    dataset_name = dataset_mapping[dataset]
+    print(f"Loading {dataset.upper()} dataset...")
 
-    # Download MNIST dataset
-    mnist = fetch_openml(
-        "mnist_784", version=1, as_frame=False, parser="auto", cache=True
+    # Download dataset
+    data = fetch_openml(
+        dataset_name, version=1, as_frame=False, parser="auto", cache=True
     )
-    X, y = mnist.data, mnist.target.astype(int)
+    X, y = data.data, data.target.astype(int)
 
     # Split into train and test (last 10k samples for test, rest for train)
     X_train, X_test = X[:60000], X[60000:]
@@ -499,14 +510,15 @@ def train(
     train_losses = []
     accuracy = []
     n_samples = len(X_train)
-    for epoch in tqdm(range(n_epochs)):
+    num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
+    for epoch in tqdm(range(n_epochs), desc="Training"):
         train_loss = 0.0
         correct_pred = 0.0
         for X, target in create_batches(X_train, y_train, batch_size, shuffle=True):
             # forward pass
             pred = model(X)
-            loss = criterion(pred, target)
-            train_loss += loss
+            batch_loss = criterion(pred, target)
+            train_loss += batch_loss
             # if most likely prediction equals target add to correct predictions
             batch_correct = cp.sum(cp.argmax(pred, axis=1) == cp.argmax(target, axis=1))
             correct_pred += batch_correct
@@ -518,7 +530,7 @@ def train(
             optimiser.step()
 
             # print(f"y {target}, pred {pred}, loss {loss}")
-        normalised_train_loss = train_loss / n_samples
+        normalised_train_loss = train_loss / num_batches_per_epoch
         train_losses.append(
             float(normalised_train_loss)
         )  # Convert to float for plotting
@@ -537,17 +549,18 @@ def evaluate(
     n_samples = len(X_test)
     test_loss = 0.0
     correct_pred = 0.0
-    for X, target in create_batches(
+    num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
+    for X, target in tqdm(create_batches(
         X_test, y_test, batch_size, shuffle=False, drop_last=False
-    ):
+    ), desc="Testing"):
         # forward pass
         pred = model(X)
-        loss = criterion(pred, target)
-        test_loss += loss
+        batch_loss = criterion(pred, target)
+        test_loss += batch_loss
         # if most likely prediction eqauls target add to correct predictions
         batch_correct = cp.sum(cp.argmax(pred, axis=1) == cp.argmax(target, axis=1))
         correct_pred += batch_correct
-    normalised_test_loss = test_loss / n_samples
+    normalised_test_loss = test_loss / num_batches_per_epoch
     accuracy = correct_pred / n_samples
     return float(normalised_test_loss), float(accuracy)  # Convert to float for printing
 
@@ -561,17 +574,18 @@ def main():
     lr = 0.001 # 0.07 - SGD
     v_lr = 0.0001 # 0.015 - SGD
     batch_size = 128
-    in_dim = 28 * 28  # MNIST dimensions
+    in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
     n_classes = 10
 
     # model config
     n_dendrite_inputs = 16
-    n_dendrites = 16
+    n_dendrites = 32
 
     # data config
+    dataset = "mnist"  # Choose between "mnist" or "fashion-mnist"
     subset_size = None
 
-    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=subset_size)
+    X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset, subset_size=subset_size)
 
     criterion = CrossEntropy()
     model = Sequential(
@@ -618,16 +632,16 @@ def main():
     plt.show()
 
     print(
-        f"final train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}"
+        f"train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}"
     )
     print(
-        f"final test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}"
+        f"test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}"
     )
     print(
-        f"final train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}"
+        f"train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}"
     )
     print(
-        f"final test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}"
+        f"test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}"
     )
 
     print(f"number of dendritic params: {model.params()[0].num_params()}")
