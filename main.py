@@ -1,5 +1,17 @@
 # %%
-import numpy as np
+try:
+    import cupy as cp
+    # Test if CuPy can actually access CUDA and random number generator
+    cp.cuda.Device(0).compute_capability
+    cp.random.seed(1)  # Test if random number generator works
+    print("Using CuPy (GPU acceleration)")
+    GPU_AVAILABLE = True
+except (ImportError, Exception) as e:
+    import numpy as cp
+    print(f"CuPy not available or CUDA error ({type(e).__name__}), using NumPy (CPU)")
+    GPU_AVAILABLE = False
+
+import numpy as np  # Keep for some specific operations that need to be on CPU
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from sklearn.datasets import fetch_openml
@@ -32,10 +44,13 @@ def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None
     X_train, X_test = X[:60000], X[60000:]
     y_train, y_test = y[:60000], y[60000:]
 
-    # Normalize pixel values
+    # Normalize pixel values and convert to GPU arrays
     if normalize:
-        X_train = X_train.astype(np.float32) / 255.0
-        X_test = X_test.astype(np.float32) / 255.0
+        X_train = cp.array(X_train.astype(np.float32) / 255.0)
+        X_test = cp.array(X_test.astype(np.float32) / 255.0)
+    else:
+        X_train = cp.array(X_train)
+        X_test = cp.array(X_test)
 
     # Flatten images if needed (they're already flattened in mnist_784)
     if not flatten:
@@ -46,12 +61,15 @@ def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None
     if one_hot:
 
         def to_one_hot(labels, n_classes=10):
-            one_hot_labels = np.zeros((len(labels), n_classes))
-            one_hot_labels[np.arange(len(labels)), labels] = 1
+            one_hot_labels = cp.zeros((len(labels), n_classes))
+            one_hot_labels[cp.arange(len(labels)), labels] = 1
             return one_hot_labels
 
-        y_train = to_one_hot(y_train)
-        y_test = to_one_hot(y_test)
+        y_train = to_one_hot(cp.array(y_train))
+        y_test = to_one_hot(cp.array(y_test))
+    else:
+        y_train = cp.array(y_train)
+        y_test = cp.array(y_test)
 
     # Use subset if specified
     if subset_size is not None:
@@ -69,7 +87,7 @@ def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None
 
 class Sigmoid:
     def _sigmoid(self, x):
-        return 1 / (1 + np.exp(-x))
+        return 1 / (1 + cp.exp(-x))
 
     def forward(self, x):
         self.output = self._sigmoid(x)
@@ -91,12 +109,12 @@ class CrossEntropy:
 
     def forward(self, logits, target):
         # Apply softmax
-        exp_logits = np.exp(logits - np.max(logits))
-        self.softmax_output = exp_logits / np.sum(exp_logits)
+        exp_logits = cp.exp(logits - cp.max(logits))
+        self.softmax_output = exp_logits / cp.sum(exp_logits)
         self.target = target
 
         # Compute cross entropy loss
-        return -np.sum(target * np.log(self.softmax_output + 1e-15))
+        return -cp.sum(target * cp.log(self.softmax_output + 1e-15))
 
     def backward(self):
         return self.softmax_output - self.target
@@ -111,10 +129,10 @@ class ReLU:
         
     def forward(self, x):
         self.input = x
-        return np.maximum(0, x)
+        return cp.maximum(0, x)
 
     def backward(self, grad):
-        return np.where(self.input > 0, grad, 0)
+        return cp.where(self.input > 0, grad, 0)
 
     def __call__(self, x):
         return self.forward(x)
@@ -127,10 +145,10 @@ class MSE:
 
     def forward(self, pred, target):
         self.pred, self.target = pred, target
-        return np.mean((pred - target) ** 2)
+        return cp.mean((pred - target) ** 2)
 
     def backward(self):
-        return np.mean(0.5 * (self.pred - self.target)).reshape(1)
+        return cp.mean(0.5 * (self.pred - self.target)).reshape(1)
 
     def __call__(self, pred, target):
         return self.forward(pred, target)
@@ -143,7 +161,7 @@ class SGD:
         self.lr = lr
         self.momentum = momentum
         self.updates = [
-            [np.zeros_like(layer.W), np.zeros_like(layer.b)] for layer in self.params
+            [cp.zeros_like(layer.W), cp.zeros_like(layer.b)] for layer in self.params
         ]
 
     def zero_grad(self):
@@ -170,10 +188,10 @@ class DendriteSGD:
         self.momentum = momentum
         self.updates = [
             [
-                np.zeros_like(layer.dendrite_W),
-                np.zeros_like(layer.dendrite_b),
-                np.zeros_like(layer.soma_W),
-                np.zeros_like(layer.soma_b),
+                cp.zeros_like(layer.dendrite_W),
+                cp.zeros_like(layer.dendrite_b),
+                cp.zeros_like(layer.soma_W),
+                cp.zeros_like(layer.soma_b),
             ]
             for layer in self.params
         ]
@@ -228,10 +246,10 @@ class LinearLayer:
     """A fully connected, feed forward layer"""
 
     def __init__(self, in_dim, out_dim):
-        self.W = np.random.randn(out_dim, in_dim) * np.sqrt(
-            2.0 / (in_dim + out_dim)
+        self.W = cp.random.randn(out_dim, in_dim) * cp.sqrt(
+            2.0 / (in_dim)
         )  # xavier init
-        self.b = np.zeros(out_dim)
+        self.b = cp.zeros(out_dim)
         self.dW = 0.0
         self.db = 0.0
         self.x = None
@@ -243,7 +261,7 @@ class LinearLayer:
 
     def backward(self, grad):
         # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
-        self.dW = np.outer(grad, self.x)
+        self.dW = cp.outer(grad, self.x)
         self.db = grad
         grad = self.W.T @ grad
         return grad
@@ -268,19 +286,19 @@ class DendriticLayer:
         #     f"input dimension {in_dim}, n_neurons: {n_neurons}, n_soma_connections: {n_soma_connections}, n_dendrite_connections: {n_dendrite_connections}"
         # )
 
-        self.dendrite_W = np.random.randn(n_soma_connections, in_dim) * np.sqrt(
-            2.0 / (n_soma_connections + in_dim)
+        self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
+            2.0 / (in_dim)
         )
-        self.dendrite_b = np.zeros((n_soma_connections))
+        self.dendrite_b = cp.zeros((n_soma_connections))
         self.dendrite_dW = 0.0
         self.dendrite_db = 0.0
 
         self.dendrite_activation = ReLU()
 
-        self.soma_W = np.random.randn(n_neurons, n_soma_connections) * np.sqrt(
-            2.0 / (n_neurons + n_soma_connections)
+        self.soma_W = cp.random.randn(n_neurons, n_soma_connections) * cp.sqrt(
+            2.0 / (n_soma_connections)
         )
-        self.soma_b = np.zeros(n_neurons)
+        self.soma_b = cp.zeros(n_neurons)
         self.soma_dW = 0.0
         self.soma_db = 0.0
 
@@ -296,7 +314,7 @@ class DendriticLayer:
         # number of 1 per row is n_dendrites, rest 0. every column only has 1 entry
         # number of rows equals n_neurons, number of columns eqais n_soma_connections
         # it is a step pattern, so the first n_dendrites entries of the first row are one.
-        self.soma_mask = np.zeros((n_neurons, n_soma_connections))
+        self.soma_mask = cp.zeros((n_neurons, n_soma_connections))
         for i in range(n_neurons):
             start_idx = i * n_dendrites
             end_idx = start_idx + n_dendrites
@@ -307,12 +325,12 @@ class DendriticLayer:
 
         # sample dendrite mask
         # for each dendrite sample n_dendrite_inputs from the input array
-        self.dendrite_mask = np.zeros((n_soma_connections, in_dim))
+        self.dendrite_mask = cp.zeros((n_soma_connections, in_dim))
         for i in range(n_soma_connections):
             if strategy == "random":
                 # sample without replacement from possible input for a given dendrite from the whole input
-                input_idx = np.random.choice(
-                    np.arange(in_dim), size=n_dendrite_inputs, replace=False
+                input_idx = cp.random.choice(
+                    cp.arange(in_dim), size=n_dendrite_inputs, replace=False
                 )
             self.dendrite_mask[i, input_idx] = 1
 
@@ -337,14 +355,14 @@ class DendriticLayer:
         grad = self.soma_activation.backward(grad)
         
         # soma back pass, multiply with mask to keep only valid gradients
-        self.soma_dW = np.outer(grad, self.soma_x) * self.soma_mask
+        self.soma_dW = cp.outer(grad, self.soma_x) * self.soma_mask
         self.soma_db = grad
         soma_grad = self.soma_W.T @ grad 
         
         soma_grad = self.dendrite_activation.backward(soma_grad)
 
         # dendrite back pass
-        self.dendrite_dW = np.outer(soma_grad, self.dendrite_x) * self.dendrite_mask
+        self.dendrite_dW = cp.outer(soma_grad, self.dendrite_x) * self.dendrite_mask
         self.dendrite_db = soma_grad
         dendrite_grad = self.dendrite_W.T @ soma_grad
         return dendrite_grad
@@ -374,7 +392,7 @@ def train(
             loss = criterion(pred, target)
             train_loss += loss
             # if most likely prediction eqauls target add to correct predictions
-            correct_pred += np.argmax(pred) == np.argmax(target)
+            correct_pred += cp.argmax(pred) == cp.argmax(target)
 
             # backward pass
             optimiser.zero_grad()
@@ -384,9 +402,9 @@ def train(
 
             # print(f"y {target}, pred {pred}, loss {loss}")
         normalised_train_loss = train_loss / n_samples
-        train_losses.append(normalised_train_loss)
+        train_losses.append(float(normalised_train_loss))  # Convert to float for plotting
         epoch_accuracy = correct_pred / n_samples
-        accuracy.append(epoch_accuracy)
+        accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
     return train_losses, accuracy
 
 
@@ -405,10 +423,10 @@ def evaluate(
         loss = criterion(pred, target)
         test_loss += loss
         # if most likely prediction eqauls target add to correct predictions
-        correct_pred += np.argmax(pred) == np.argmax(target)
+        correct_pred += cp.argmax(pred) == cp.argmax(target)
     normalised_test_loss = test_loss / n_samples
     accuracy = correct_pred / n_samples
-    return normalised_test_loss, accuracy
+    return float(normalised_test_loss), float(accuracy)  # Convert to float for printing
 
 
 def plot_loss(losses):
@@ -429,7 +447,11 @@ def plot_accuracy(accuracy):
 
 def main():
     # for repoducability
-    np.random.seed(42)
+    try:
+        cp.random.seed(42)
+    except Exception:
+        # Fallback if random seed fails (shouldn't happen if import check worked)
+        pass
 
     # config
     n_epochs = 10
@@ -442,18 +464,10 @@ def main():
     X_train, y_train, X_test, y_test = load_mnist_data(subset_size=1000)
 
     criterion = CrossEntropy()
-    # model = DendriticLayer(in_dim, n_classes)
-    # params = [model]
-    # optimiser = DendriteSGD(params, criterion, lr=lr, momentum=0.9)
-    
     model = Sequential([
-        DendriticLayer(in_dim, 100),
-        DendriticLayer(100, 100), 
-        DendriticLayer(100, n_classes)
+        DendriticLayer(in_dim, n_classes)
     ])
-    params = model.params()
-    optimiser = DendriteSGD(params, criterion, lr=lr, momentum=0.9)
-
+    optimiser = DendriteSGD(model.params(), criterion, lr=lr, momentum=0.9)
 
     # train model
     train_losses, train_accuracy = train(
