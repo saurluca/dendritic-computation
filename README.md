@@ -19,3 +19,4 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 ## Ideas:
 
 - Improve weight initilisation
+- shuffle training data for each epoch

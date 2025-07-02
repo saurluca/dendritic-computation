@@ -366,6 +366,26 @@ def train(
     return train_losses, accuracy
 
 
+def evaluate(
+    X_test,
+    y_test,
+    model,
+    criterion,
+):
+    n_samples = len(X_test)
+    test_loss = 0.0
+    correct_pred = 0.0
+    for X, target in zip(X_test, y_test):
+        # forward pass
+        pred = model(X)
+        loss = criterion(pred, target)
+        test_loss += loss
+        # if most likely prediction eqauls target add to correct predictions
+        correct_pred += np.argmax(pred) == np.argmax(target)
+    accuracy = correct_pred / n_samples
+    return test_loss, accuracy
+
+
 def plot_loss(losses):
     plt.plot(losses)
     plt.title("Loss over epochs")
@@ -393,25 +413,25 @@ def main():
     n_classes = 10
 
     # load data
-    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=10)
+    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=100)
     
     model = DendriticLayer(in_dim, n_classes)
     criterion = CrossEntropy()
-        
-    # pred = model(X_train[1])
-    # loss = criterion(pred, y_train[1])
-    # print(f"prediction {pred}, true y {y_train[1]},\n loss {loss}")  
-    
     optimiser = DendriteSGD([model], criterion, lr=lr, momentum=0.9)
 
-    train_losses, accuracy = train(X_train, y_train, model, criterion, optimiser, n_epochs)
-    plot_loss(train_losses)
-    plot_accuracy(accuracy)
+    # train model
+    train_losses, train_accuracy = train(X_train, y_train, model, criterion, optimiser, n_epochs)
+    # run model evaluation
+    test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
     
-    # plot_predictions(outputs[-1], targets)
-    print(f"final loss {train_losses[-1]}")
-    print(f"final accuracy {accuracy[-1]}")
-
+    # plot
+    plot_loss(train_losses)
+    plot_accuracy(train_accuracy)
+    
+    print(f"final train loss {train_losses[-1]}")
+    print(f"final test loss {test_loss}")
+    print(f"final train accuracy {train_accuracy[-1]}")
+    print(f"final test accuracy {test_accuracy}")
 
 if __name__ == "main":
     main()
