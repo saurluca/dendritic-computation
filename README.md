@@ -22,7 +22,7 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [x] shuffle training data for each epoch
 - [ ] implement the other 2 dendric input strategyies
 - [x] implement multiple layers
-- [ ] batch processing
+- [x] batch processing
 - [x] gpu viable (jax, cupy?)
 - [x] baseline comparison model
 - [x] parameter count 

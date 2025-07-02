@@ -85,23 +85,6 @@ def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None
     return X_train, y_train, X_test, y_test
 
 
-class Sigmoid:
-    def _sigmoid(self, x):
-        return 1 / (1 + cp.exp(-x))
-
-    def forward(self, x):
-        self.output = self._sigmoid(x)
-        return self.output
-
-    def backward(self, grad):
-        # Derivative of sigmoid: sigmoid(x) * (1 - sigmoid(x))
-        # where sigmoid(x) is the output from the forward pass
-        return self.output * (1 - self.output) * grad
-    
-    def __call__(self, x):
-        return self.forward(x)
-
-
 class CrossEntropy:
     def __init__(self):
         self.softmax_output = None
