@@ -355,9 +355,6 @@ class DendriticLayer:
         grad = self.soma_activation.backward(grad)
         
         # soma back pass, multiply with mask to keep only valid gradients
-        # self.soma_dW = cp.outer(grad, self.soma_x) * self.soma_mask
-        # self.soma_db = grad
-        # soma_grad = self.soma_W.T @ grad 
         self.soma_dW = grad.T @ self.soma_x * self.soma_mask
         self.soma_db = grad.sum(axis=0)
         soma_grad = grad @ self.soma_W
@@ -367,9 +364,7 @@ class DendriticLayer:
         # # dendrite back pass
         self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
         self.dendrite_db = soma_grad.sum(axis=0)
-        dendrite_grad = soma_grad @ self.dendrite_W
-        
-        return dendrite_grad
+        return soma_grad @ self.dendrite_W
     
     def num_params(self):
         print(f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}")

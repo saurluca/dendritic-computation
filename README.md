@@ -20,7 +20,7 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 
 - [x] Improve weight initilisation
 - [x] shuffle training data for each epoch
-- [ ] implement the other 2 dendric input strategyies
+- [ ] implement the other 2 dendric input strategies
 - [x] implement multiple layers
 - [x] batch processing
 - [x] gpu viable (jax, cupy?)
@@ -29,6 +29,7 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [x] use leaky relu
 - [ ] implement Adam
 - [ ] weight decay
+- [ ] optional: implement dataloader class
 
 
 ## Findings
@@ -38,3 +39,5 @@ LeakyReLU is massivly important for dendritic model to outperform vanilla model.
 Larger training data is more important. Vanilla has better results with fewer data (10^2 pictures) but with 10 ^3 dendritic outperforms vannilla, given LeakyRelu, even with fewer parameters. (32 dendrites, 16 input per dendrite)
 
 Vanilla model requires lower learning rate, coverges slower
+
+Vanilla model looses a good amount of performance if the train batches are not shuffled every epoch. Higher train / test error and lower accuracy. Dendrite model does not suffer from same problems.
