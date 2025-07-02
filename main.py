@@ -392,6 +392,23 @@ class DendriticLayer:
         return self.forward(x)
 
 
+def create_batches(X, y, batch_size, shuffle=True):
+    n_samples = len(X)
+    # shuffle data
+    if shuffle:
+        indices = cp.arange(n_samples)
+        cp.random.shuffle(indices)
+        X = X[indices]
+        y = y[indices]
+    
+    for i in range(0, n_samples, batch_size):
+        X_batch = X[i:i+batch_size]
+        y_batch = y[i:i+batch_size]
+        yield X_batch, y_batch
+    return X_batch, y_batch
+
+
+
 def train(
     X_train,
     y_train,
@@ -399,6 +416,7 @@ def train(
     criterion,
     optimiser,
     n_epochs=2,
+    batch_size=128,
 ):
     train_losses = []
     accuracy = []
@@ -473,16 +491,17 @@ def main():
     # config
     n_epochs = 10
     lr = 0.01
+    batch_size = 128
     in_dim = 28 * 28  # MNIST dimension
     n_classes = 10
 
     # load data
     # subset_size=100
-    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=1000)
+    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=10000)
 
     criterion = CrossEntropy()
     model = Sequential([
-        DendriticLayer(in_dim, n_classes, n_dendrite_inputs=16, n_dendrites=16)
+        DendriticLayer(in_dim, n_classes, n_dendrite_inputs=16, n_dendrites=32)
     ])
     optimiser = DendriteSGD(model.params(), criterion, lr=lr, momentum=0.9)
     
@@ -494,24 +513,17 @@ def main():
 
     # train model
     train_losses, train_accuracy = train(
-        X_train, y_train, model, criterion, optimiser, n_epochs
+        X_train, y_train, model, criterion, optimiser, n_epochs, batch_size
     )
     # run model evaluation
     test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
 
     # plot
-    plot_loss(train_losses)
     plot_accuracy(train_accuracy)
-
-    print(f"final train loss {train_losses[-1]}")
-    print(f"final test loss {test_loss}")
-    print(f"final train accuracy {train_accuracy[-1]}")
-    print(f"final test accuracy {test_accuracy}")
-    
     
     # train vani
     v_train_losses, v_train_accuracy = train(
-        X_train, y_train, v_model, v_criterion, v_optimiser, n_epochs
+        X_train, y_train, v_model, v_criterion, v_optimiser, n_epochs, batch_size
     )
     # run model evaluation
     v_test_loss, v_test_accuracy = evaluate(X_test, y_test, v_model, v_criterion)
