@@ -89,6 +89,23 @@ class LeakyReLU:
         return self.forward(x)
 
 
+class ELU:
+    def __init__(self, alpha=1.0):
+        self.alpha = alpha
+        self.input = None
+
+    def forward(self, x):
+        self.input = x
+        return cp.where(x > 0, x, self.alpha * (cp.exp(x) - 1))
+
+    def backward(self, grad):
+        return cp.where(self.input > 0, grad, self.alpha * cp.exp(self.input) * grad)
+
+    def __call__(self, x):
+        return self.forward(x)
+    
+
+
 class SGD:
     def __init__(self, params, criterion, lr=0.01, momentum=0.9):
         self.params = params
@@ -290,7 +307,7 @@ class DendriticLayer:
     """A sparse dendritic layer, consiting of dendrites and somas"""
 
     def __init__(
-        self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=3
+        self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=4
     ):
         assert strategy in ["random", "local-receptive-fields", "fully-connected"], (
             "Invalid strategy"
@@ -594,19 +611,19 @@ def evaluate(
 
 def main():
     # for repoducability
-    cp.random.seed(42)
+    cp.random.seed(1093812374124)
 
     # config
     n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
     lr = 0.001  # 0.07 - SGD
-    v_lr = 0.0001  # 0.015 - SGD
+    v_lr = 0.001  # 0.015 - SGD
     batch_size = 128
     in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
     n_classes = 10
 
     # model config
     n_dendrite_inputs = 16
-    n_dendrites = 4
+    n_dendrites = 16
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # data config
@@ -627,20 +644,8 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
             ),
-            DendriticLayer(
-                256,
-                256,
-                n_dendrite_inputs=n_dendrite_inputs,
-                n_dendrites=n_dendrites,
-                strategy=strategy,
-            ),
-            DendriticLayer(
-                256,
-                n_classes,
-                n_dendrite_inputs=n_dendrite_inputs,
-                n_dendrites=n_dendrites,
-                strategy=strategy,
-            ),
+            LeakyReLU(),
+            LinearLayer(256, n_classes),
         ]
     )
     optimiser = Adam(model.params(), criterion, lr=lr)
@@ -648,9 +653,9 @@ def main():
     v_criterion = CrossEntropy()
     v_model = Sequential(
         [
-            LinearLayer(in_dim, 48),
-            ReLU(),
-            LinearLayer(48, n_classes),
+            LinearLayer(in_dim, 96),
+            LeakyReLU(),
+            LinearLayer(96, n_classes),
         ]
     )
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
