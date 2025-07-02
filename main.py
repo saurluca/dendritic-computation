@@ -267,8 +267,8 @@ class DendriticLayer:
         self.soma_activation = ReLU()
 
         # inputs to save for backprop
-        self.x_dendrite = None
-        self.x_soma = None
+        self.dendrite_x = None
+        self.soma_x = None
 
         # sample soma mask:
         # [[1, 1, 0, 0]
@@ -302,23 +302,29 @@ class DendriticLayer:
     def forward(self, x):
         # pass through dendrites
         # print(f"x dendrite: {x.shape}, self.dendrite_W shape {self.dendrite_W.shape}")
-        self.x_dendrite = x
+        self.dendrite_x = x
         x = self.dendrite_W @ x + self.dendrite_b
         x = self.dendrite_activation(x)
 
         # pass through soma
         # print(f"x soma: {x.shape}, self.soma_W shape {self.soma_W.shape}")
-        self.x_soma = x
+        self.soma_x = x
         x = self.soma_W @ x + self.soma_b
         return self.soma_activation(x)
 
     def backward(self, grad):
         # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
-        # self.dW = np.outer(grad, self.x)
+        
+        # soma back pass, multiply with mask to keep only valid gradients
+        self.soma_dW = np.outer(grad, self.soma_x) * self.soma_mask
         # self.db = grad
-        # grad = self.W.T @ grad
-        # return grad
-        pass
+        soma_grad = self.soma_W.T @ grad
+        
+        # dendrite back pass
+        self.dendrite_dW = np.outer(soma_grad, self.dendrite_x) * self.dendrite_mask
+        # self.db = grad
+        dendrite_grad = self.dendrite_W.T @ soma_grad
+        return dendrite_grad
 
     def __call__(self, x):
         return self.forward(x)
@@ -381,13 +387,13 @@ def main():
     np.random.seed(42)
 
     # config
-    n_epochs = 2
+    n_epochs = 10
     lr = 0.1
     in_dim = 28 * 28  # MNIST dimension
     n_classes = 10
 
     # load data
-    X_train, y_train, X_test, y_test = load_mnist_data()
+    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=10)
     
     model = DendriticLayer(in_dim, n_classes)
     criterion = CrossEntropy()
