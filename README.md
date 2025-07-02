@@ -30,7 +30,7 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [ ] implement Adam
 - [ ] weight decay
 - [ ] optional: implement dataloader class
-- [ ] Combine both SGD classes
+- [x] Combine both SGD classes
 
 
 ## Findings
@@ -47,3 +47,4 @@ Vanilla model looses a good amount of performance if the train batches are not s
 ## Explore
 
 - Effect of momentum on both
+- Compare training time of both

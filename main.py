@@ -1,88 +1,20 @@
 # %%
 try:
     import cupy as cp
+
     # Test if CuPy can actually access CUDA and random number generator
     cp.cuda.Device(0).compute_capability
     cp.random.seed(1)  # Test if random number generator works
     print("Using CuPy (GPU acceleration)")
-    GPU_AVAILABLE = True
 except (ImportError, Exception) as e:
     import numpy as cp
+
     print(f"CuPy not available or CUDA error ({type(e).__name__}), using NumPy (CPU)")
-    GPU_AVAILABLE = False
 
 import numpy as np  # Keep for some specific operations that need to be on CPU
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from sklearn.datasets import fetch_openml
-
-
-def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None):
-    """
-    Download and load the MNIST dataset.
-
-    Args:
-        normalize (bool): If True, normalize pixel values to [0, 1]
-        flatten (bool): If True, flatten 28x28 images to 784-dimensional vectors
-        one_hot (bool): If True, convert labels to one-hot encoding
-        subset_size (int): If specified, return only a subset of the data
-
-    Returns:
-        tuple: (X_train, y_train, X_test, y_test)
-            X_train, X_test: Input features
-            y_train, y_test: Target labels
-    """
-    print("Loading MNIST dataset...")
-
-    # Download MNIST dataset
-    mnist = fetch_openml(
-        "mnist_784", version=1, as_frame=False, parser="auto", cache=True
-    )
-    X, y = mnist.data, mnist.target.astype(int)
-
-    # Split into train and test (last 10k samples for test, rest for train)
-    X_train, X_test = X[:60000], X[60000:]
-    y_train, y_test = y[:60000], y[60000:]
-
-    # Normalize pixel values and convert to GPU arrays
-    if normalize:
-        X_train = cp.array(X_train.astype(np.float32) / 255.0)
-        X_test = cp.array(X_test.astype(np.float32) / 255.0)
-    else:
-        X_train = cp.array(X_train)
-        X_test = cp.array(X_test)
-
-    # Flatten images if needed (they're already flattened in mnist_784)
-    if not flatten:
-        X_train = X_train.reshape(-1, 28, 28)
-        X_test = X_test.reshape(-1, 28, 28)
-
-    # Convert labels to one-hot encoding
-    if one_hot:
-
-        def to_one_hot(labels, n_classes=10):
-            one_hot_labels = cp.zeros((len(labels), n_classes))
-            one_hot_labels[cp.arange(len(labels)), labels] = 1
-            return one_hot_labels
-
-        y_train = to_one_hot(cp.array(y_train))
-        y_test = to_one_hot(cp.array(y_test))
-    else:
-        y_train = cp.array(y_train)
-        y_test = cp.array(y_test)
-
-    # Use subset if specified
-    if subset_size is not None:
-        X_train, y_train = X_train[:subset_size], y_train[:subset_size]
-        X_test, y_test = (
-            X_test[: subset_size // 6],
-            y_test[: subset_size // 6],
-        )  # Keep proportional test size
-
-    print(f"Training data shape: {X_train.shape}, {y_train.shape}")
-    print(f"Test data shape: {X_test.shape}, {y_test.shape}")
-
-    return X_train, y_train, X_test, y_test
 
 
 class CrossEntropy:
@@ -97,21 +29,23 @@ class CrossEntropy:
             # Single sample case - reshape to batch of size 1
             logits = logits.reshape(1, -1)
             target = target.reshape(1, -1)
-        
+
         # Apply softmax per sample (along axis=1)
         # Subtract max for numerical stability, then exponentiate
         exp_logits = cp.exp(logits - cp.max(logits, axis=1, keepdims=True))
         # Divide by sum of exponentiated logits per sample (along axis=1)
         self.softmax_output = exp_logits / cp.sum(exp_logits, axis=1, keepdims=True)
-        
+
         self.target = target
-        self.batch_size = logits.shape[0] # Store batch size
-        
+        self.batch_size = logits.shape[0]  # Store batch size
+
         # Compute cross entropy loss per sample, then average over the batch
         # Use a small epsilon for numerical stability with log(0)
         log_softmax = cp.log(self.softmax_output + 1e-15)
         # Only consider the log-probabilities of the true classes
-        loss_per_sample = -cp.sum(target * log_softmax, axis=1) # Sum over classes for each sample
+        loss_per_sample = -cp.sum(
+            target * log_softmax, axis=1
+        )  # Sum over classes for each sample
 
         # Return the average loss over the batch
         return cp.mean(loss_per_sample)
@@ -127,7 +61,7 @@ class CrossEntropy:
 class ReLU:
     def __init__(self):
         self.input = None
-        
+
     def forward(self, x):
         self.input = x
         return cp.maximum(0, x)
@@ -137,20 +71,20 @@ class ReLU:
 
     def __call__(self, x):
         return self.forward(x)
-    
+
 
 class LeakyReLU:
     def __init__(self, alpha=0.1):
         self.alpha = alpha
         self.input = None
-        
+
     def forward(self, x):
         self.input = x
         return cp.where(x > 0, x, self.alpha * x)
-    
+
     def backward(self, grad):
         return cp.where(self.input > 0, grad, self.alpha * grad)
-    
+
     def __call__(self, x):
         return self.forward(x)
 
@@ -161,26 +95,25 @@ class SGD:
         self.criterion = criterion
         self.lr = lr
         self.momentum = momentum
-        
+
         # Initialize updates based on layer type
         self.updates = []
         for layer in self.params:
-            if hasattr(layer, 'dendrite_W'):  # DendriticLayer
-                self.updates.append([
-                    cp.zeros_like(layer.dendrite_W),
-                    cp.zeros_like(layer.dendrite_b),
-                    cp.zeros_like(layer.soma_W),
-                    cp.zeros_like(layer.soma_b),
-                ])
+            if hasattr(layer, "dendrite_W"):  # DendriticLayer
+                self.updates.append(
+                    [
+                        cp.zeros_like(layer.dendrite_W),
+                        cp.zeros_like(layer.dendrite_b),
+                        cp.zeros_like(layer.soma_W),
+                        cp.zeros_like(layer.soma_b),
+                    ]
+                )
             else:  # LinearLayer
-                self.updates.append([
-                    cp.zeros_like(layer.W),
-                    cp.zeros_like(layer.b)
-                ])
+                self.updates.append([cp.zeros_like(layer.W), cp.zeros_like(layer.b)])
 
     def zero_grad(self):
         for layer in self.params:
-            if hasattr(layer, 'dendrite_W'):  # DendriticLayer
+            if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 layer.dendrite_dW = 0.0
                 layer.dendrite_db = 0.0
                 layer.soma_dW = 0.0
@@ -191,7 +124,7 @@ class SGD:
 
     def step(self):
         for layer, update in zip(self.params, self.updates):
-            if hasattr(layer, 'dendrite_W'):  # DendriticLayer
+            if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
                 update[1] = self.lr * layer.dendrite_db + self.momentum * update[1]
                 update[2] = self.lr * layer.soma_dW + self.momentum * update[2]
@@ -271,14 +204,14 @@ class DendriticLayer:
         assert strategy in ["random"], "Invalid strategy"
 
         n_neurons = out_dim  # the number of neurons determins the size of the output
-        n_soma_connections = (n_dendrites * n_neurons) 
+        n_soma_connections = n_dendrites * n_neurons
         # print(
         #     f"input dimension {in_dim}, n_neurons: {n_neurons}, n_soma_connections: {n_soma_connections}, n_dendrite_connections: {n_dendrite_connections}"
         # )
 
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
-        ) # He init, for ReLU
+        )  # He init, for ReLU
         self.dendrite_b = cp.zeros((n_soma_connections))
         self.dendrite_dW = 0.0
         self.dendrite_db = 0.0
@@ -287,7 +220,7 @@ class DendriticLayer:
 
         self.soma_W = cp.random.randn(n_neurons, n_soma_connections) * cp.sqrt(
             2.0 / (n_soma_connections)
-        ) # He init, for ReLU
+        )  # He init, for ReLU
         self.soma_b = cp.zeros(n_neurons)
         self.soma_dW = 0.0
         self.soma_db = 0.0
@@ -343,25 +276,100 @@ class DendriticLayer:
     def backward(self, grad):
         # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
         grad = self.soma_activation.backward(grad)
-        
+
         # soma back pass, multiply with mask to keep only valid gradients
         self.soma_dW = grad.T @ self.soma_x * self.soma_mask
         self.soma_db = grad.sum(axis=0)
         soma_grad = grad @ self.soma_W
-        
+
         soma_grad = self.dendrite_activation.backward(soma_grad)
 
         # # dendrite back pass
         self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
         self.dendrite_db = soma_grad.sum(axis=0)
         return soma_grad @ self.dendrite_W
-    
+
     def num_params(self):
-        print(f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}")
-        return int(cp.sum(self.dendrite_mask) + self.dendrite_b.size + cp.sum(self.soma_mask) + self.soma_b.size)
- 
+        print(
+            f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
+        )
+        return int(
+            cp.sum(self.dendrite_mask)
+            + self.dendrite_b.size
+            + cp.sum(self.soma_mask)
+            + self.soma_b.size
+        )
+
     def __call__(self, x):
         return self.forward(x)
+
+
+def load_mnist_data(normalize=True, flatten=True, one_hot=True, subset_size=None):
+    """
+    Download and load the MNIST dataset.
+
+    Args:
+        normalize (bool): If True, normalize pixel values to [0, 1]
+        flatten (bool): If True, flatten 28x28 images to 784-dimensional vectors
+        one_hot (bool): If True, convert labels to one-hot encoding
+        subset_size (int): If specified, return only a subset of the data
+
+    Returns:
+        tuple: (X_train, y_train, X_test, y_test)
+            X_train, X_test: Input features
+            y_train, y_test: Target labels
+    """
+    print("Loading MNIST dataset...")
+
+    # Download MNIST dataset
+    mnist = fetch_openml(
+        "mnist_784", version=1, as_frame=False, parser="auto", cache=True
+    )
+    X, y = mnist.data, mnist.target.astype(int)
+
+    # Split into train and test (last 10k samples for test, rest for train)
+    X_train, X_test = X[:60000], X[60000:]
+    y_train, y_test = y[:60000], y[60000:]
+
+    # Normalize pixel values and convert to GPU arrays
+    if normalize:
+        X_train = cp.array(X_train.astype(np.float32) / 255.0)
+        X_test = cp.array(X_test.astype(np.float32) / 255.0)
+    else:
+        X_train = cp.array(X_train)
+        X_test = cp.array(X_test)
+
+    # Flatten images if needed (they're already flattened in mnist_784)
+    if not flatten:
+        X_train = X_train.reshape(-1, 28, 28)
+        X_test = X_test.reshape(-1, 28, 28)
+
+    # Convert labels to one-hot encoding
+    if one_hot:
+
+        def to_one_hot(labels, n_classes=10):
+            one_hot_labels = cp.zeros((len(labels), n_classes))
+            one_hot_labels[cp.arange(len(labels)), labels] = 1
+            return one_hot_labels
+
+        y_train = to_one_hot(cp.array(y_train))
+        y_test = to_one_hot(cp.array(y_test))
+    else:
+        y_train = cp.array(y_train)
+        y_test = cp.array(y_test)
+
+    # Use subset if specified
+    if subset_size is not None:
+        X_train, y_train = X_train[:subset_size], y_train[:subset_size]
+        X_test, y_test = (
+            X_test[: subset_size // 6],
+            y_test[: subset_size // 6],
+        )  # Keep proportional test size
+
+    print(f"Training data shape: {X_train.shape}, {y_train.shape}")
+    print(f"Test data shape: {X_test.shape}, {y_test.shape}")
+
+    return X_train, y_train, X_test, y_test
 
 
 def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
@@ -372,15 +380,14 @@ def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
         cp.random.shuffle(indices)
         X = X[indices]
         y = y[indices]
-    
+
     for i in range(0, n_samples, batch_size):
         if drop_last and i + batch_size > n_samples:
             break
-        X_batch = X[i:i+batch_size]
-        y_batch = y[i:i+batch_size]
+        X_batch = X[i : i + batch_size]
+        y_batch = y[i : i + batch_size]
         yield X_batch, y_batch
     return X_batch, y_batch
-
 
 
 def train(
@@ -415,7 +422,9 @@ def train(
 
             # print(f"y {target}, pred {pred}, loss {loss}")
         normalised_train_loss = train_loss / n_samples
-        train_losses.append(float(normalised_train_loss))  # Convert to float for plotting
+        train_losses.append(
+            float(normalised_train_loss)
+        )  # Convert to float for plotting
         epoch_accuracy = correct_pred / n_samples
         accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
     return train_losses, accuracy
@@ -431,7 +440,9 @@ def evaluate(
     n_samples = len(X_test)
     test_loss = 0.0
     correct_pred = 0.0
-    for X, target in create_batches(X_test, y_test, batch_size, shuffle=False, drop_last=False):
+    for X, target in create_batches(
+        X_test, y_test, batch_size, shuffle=False, drop_last=False
+    ):
         # forward pass
         pred = model(X)
         loss = criterion(pred, target)
@@ -454,67 +465,79 @@ def main():
     v_lr = 0.015
     momentum = 0.9
     batch_size = 128
-    in_dim = 28 * 28  # MNIST dimension
+    in_dim = 28 * 28  # MNIST dimensions
     n_classes = 10
-    
+
     # model config
     n_dendrite_inputs = 16
     n_dendrites = 32
-    
+
     # data config
     subset_size = None
 
     X_train, y_train, X_test, y_test = load_mnist_data(subset_size=subset_size)
 
     criterion = CrossEntropy()
-    model = Sequential([
-        DendriticLayer(in_dim, n_classes, n_dendrite_inputs=n_dendrite_inputs, n_dendrites=n_dendrites)
-    ])
+    model = Sequential(
+        [
+            DendriticLayer(
+                in_dim,
+                n_classes,
+                n_dendrite_inputs=n_dendrite_inputs,
+                n_dendrites=n_dendrites,
+            )
+        ]
+    )
     optimiser = SGD(model.params(), criterion, lr=lr, momentum=momentum)
-    
+
     v_criterion = CrossEntropy()
-    v_model = Sequential([
-        LinearLayer(in_dim, n_classes),
-        ReLU()
-    ])
+    v_model = Sequential([LinearLayer(in_dim, n_classes), ReLU()])
     v_optimiser = SGD(v_model.params(), v_criterion, lr=v_lr, momentum=momentum)
 
-    # train model
+    # train dendritic model
     train_losses, train_accuracy = train(
         X_train, y_train, model, criterion, optimiser, n_epochs, batch_size
     )
     # run model evaluation
     test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
 
-
-    # train vani
+    # train vanilla model
     v_train_losses, v_train_accuracy = train(
         X_train, y_train, v_model, v_criterion, v_optimiser, n_epochs, batch_size
     )
     # run model evaluation
     v_test_loss, v_test_accuracy = evaluate(X_test, y_test, v_model, v_criterion)
-    
+
     # # plot accuracy of vanilla model vs dendritic model
     plt.plot(v_train_accuracy, label="Vanilla")
     plt.plot(train_accuracy, label="Dendritic")
     plt.title("Accuracy over epochs")
     plt.legend()
     plt.show()
-    
+
     # # plot both models in comparison
     plt.plot(v_train_losses, label="Vanilla")
     plt.plot(train_losses, label="Dendritic")
     plt.title("Loss over epochs")
     plt.legend()
     plt.show()
-    
-    print(f"final train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}")
-    print(f"final test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}")
-    print(f"final train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}")
-    print(f"final test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}")
+
+    print(
+        f"final train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}"
+    )
+    print(
+        f"final test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}"
+    )
+    print(
+        f"final train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}"
+    )
+    print(
+        f"final test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}"
+    )
 
     print(f"number of dendritic params: {model.params()[0].num_params()}")
     print(f"number of vanilla params: {v_model.params()[0].num_params()}")
+
 
 # if __name__ == "main":
 #     main()
