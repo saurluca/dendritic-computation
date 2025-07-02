@@ -229,6 +229,13 @@ class Sequential:
             if hasattr(layer, "W") or hasattr(layer, "soma_W"):
                 params.append(layer)
         return params
+    
+    def num_params(self):
+        num_params = 0
+        for layer in self.layers:
+            if hasattr(layer, "num_params"):
+                num_params += layer.num_params()
+        return num_params
 
     def __call__(self, x):
         for layer in self.layers:
@@ -579,10 +586,11 @@ def main():
 
     # model config
     n_dendrite_inputs = 16
-    n_dendrites = 32
+    n_dendrites = 4
+    strategy = "random"
 
     # data config
-    dataset = "mnist"  # Choose between "mnist" or "fashion-mnist"
+    dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
     subset_size = None
 
     X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset, subset_size=subset_size)
@@ -592,18 +600,43 @@ def main():
         [
             DendriticLayer(
                 in_dim,
+                256,
+                n_dendrite_inputs=n_dendrite_inputs,
+                n_dendrites=n_dendrites,
+                strategy=strategy,
+            ),
+            DendriticLayer(
+                256,
+                256,
+                n_dendrite_inputs=n_dendrite_inputs,
+                n_dendrites=n_dendrites,
+                strategy=strategy,
+            ),
+            DendriticLayer(
+                256,
                 n_classes,
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
-                strategy="local-receptive-fields",
+                strategy=strategy,
             ),
         ]
     )
     optimiser = Adam(model.params(), criterion, lr=lr)
 
     v_criterion = CrossEntropy()
-    v_model = Sequential([LinearLayer(in_dim, n_classes)])
+    v_model = Sequential(
+        [
+            LinearLayer(in_dim, 32),
+            ReLU(),
+            LinearLayer(32, n_classes),
+        ]
+    )
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
+    
+    print(f"number of dendritic params: {model.num_params()}")
+    print(f"number of vanilla params: {v_model.num_params()}")
+
+    # raise Exception("Stop here")
 
     print("Training dendritic model...")
     train_losses, train_accuracy = train(
@@ -643,9 +676,6 @@ def main():
     print(
         f"test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}"
     )
-
-    print(f"number of dendritic params: {model.params()[0].num_params()}")
-    print(f"number of vanilla params: {v_model.params()[0].num_params()}")
 
 
 # if __name__ == "main":

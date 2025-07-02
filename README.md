@@ -47,6 +47,8 @@ Vanilla model looses a good amount of performance if the train batches are not s
 
 Local receptive fields requrie more n_dendrites (16 problem, 32 good) to work. otherwise they get out performed by the random strategy and by the vanilla model.
 
+Dendritic model sometimes has considerable time to setup dendrtic inputs
+
 ## Explore
 
 - Effect of momentum on both
