@@ -187,6 +187,7 @@ class DendriteSGD:
 
     def step(self):
         for layer, update in zip(self.params, self.updates):
+            # print(f"shape of db {layer.dendrite_db.shape} shape of b {layer.dendrite_b.shape}")
             update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
             update[1] = self.lr * layer.dendrite_db + self.momentum * update[1]
             update[2] = self.lr * layer.soma_dW + self.momentum * update[2]
@@ -333,19 +334,18 @@ class DendriticLayer:
 
     def backward(self, grad):
         # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
-
         grad = self.soma_activation.backward(grad)
         
         # soma back pass, multiply with mask to keep only valid gradients
         self.soma_dW = np.outer(grad, self.soma_x) * self.soma_mask
-        # self.db = grad
-        soma_grad = self.soma_W.T @ grad
+        self.soma_db = grad
+        soma_grad = self.soma_W.T @ grad 
         
         soma_grad = self.dendrite_activation.backward(soma_grad)
 
         # dendrite back pass
         self.dendrite_dW = np.outer(soma_grad, self.dendrite_x) * self.dendrite_mask
-        # self.db = grad
+        self.dendrite_db = soma_grad
         dendrite_grad = self.dendrite_W.T @ soma_grad
         return dendrite_grad
 
@@ -383,7 +383,8 @@ def train(
             optimiser.step()
 
             # print(f"y {target}, pred {pred}, loss {loss}")
-        train_losses.append(train_loss)
+        normalised_train_loss = train_loss / n_samples
+        train_losses.append(normalised_train_loss)
         epoch_accuracy = correct_pred / n_samples
         accuracy.append(epoch_accuracy)
     return train_losses, accuracy
@@ -405,8 +406,9 @@ def evaluate(
         test_loss += loss
         # if most likely prediction eqauls target add to correct predictions
         correct_pred += np.argmax(pred) == np.argmax(target)
+    normalised_test_loss = test_loss / n_samples
     accuracy = correct_pred / n_samples
-    return test_loss, accuracy
+    return normalised_test_loss, accuracy
 
 
 def plot_loss(losses):
@@ -431,7 +433,7 @@ def main():
 
     # config
     n_epochs = 10
-    lr = 0.01
+    lr = 0.001
     in_dim = 28 * 28  # MNIST dimension
     n_classes = 10
 
