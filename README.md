@@ -32,6 +32,7 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [ ] optional: implement dataloader class
 - [x] Combine both SGD classes
 - [ ] speed up sparse matrix calcuation using CSR
+- [ ] add Fashion MNIST
 
 
 ## Findings

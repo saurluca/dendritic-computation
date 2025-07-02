@@ -269,15 +269,11 @@ class DendriticLayer:
     """A sparse dendritic layer, consiting of dendrites and somas"""
 
     def __init__(
-        self, in_dim, out_dim, strategy="random", n_dendrite_inputs=16, n_dendrites=3
+        self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=3
     ):
-        assert strategy in ["random"], "Invalid strategy"
+        assert strategy in ["random", "local-receptive-fields", "fully-connected"], "Invalid strategy"
 
-        n_neurons = out_dim  # the number of neurons determins the size of the output
         n_soma_connections = n_dendrites * n_neurons
-        # print(
-        #     f"input dimension {in_dim}, n_neurons: {n_neurons}, n_soma_connections: {n_soma_connections}, n_dendrite_connections: {n_dendrite_connections}"
-        # )
 
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
@@ -325,6 +321,37 @@ class DendriticLayer:
                 input_idx = cp.random.choice(
                     cp.arange(in_dim), size=n_dendrite_inputs, replace=False
                 )
+            elif strategy == "local-receptive-fields":
+                # According to the description: "16 inputs are chosen from the 4 × 4 neighborhood"
+                assert n_dendrite_inputs == 16, "local-receptive-fields strategy requires exactly 16 dendrite inputs for a 4x4 neighborhood"
+                
+                image_size = int(cp.sqrt(in_dim))  # 28 for MNIST
+                
+                # Choose center pixel such that 4x4 neighborhood fits within image bounds
+                # For 4x4 grid centered at (center_row, center_col), we need:
+                # - Grid spans from (center_row-1, center_col-1) to (center_row+2, center_col+2)
+                # - So center_row must be in [1, image_size-3] and center_col must be in [1, image_size-3]
+                # This ensures the full 4x4 grid is within [0, image_size-1] bounds
+                min_center = 1
+                max_center = image_size - 3  # 25 for 28x28 image
+                
+                center_row = cp.random.randint(min_center, max_center + 1)
+                center_col = cp.random.randint(min_center, max_center + 1)
+                
+                # Create 4x4 neighborhood around center pixel
+                # The 4x4 grid will be positioned such that center is at position (1,1) in the grid
+                input_indices = []
+                for dr in range(-1, 3):  # -1, 0, 1, 2 (4 rows)
+                    for dc in range(-1, 3):  # -1, 0, 1, 2 (4 cols)
+                        row = center_row + dr
+                        col = center_col + dc
+                        idx = row * image_size + col
+                        input_indices.append(idx)
+                
+                input_idx = cp.array(input_indices)
+            elif strategy == "fully-connected":
+                # sample all inputs for a given dendrite
+                input_idx = cp.arange(in_dim)
             self.dendrite_mask[i, input_idx] = 1
 
         # mask out unneeded weights, thus making weights sparse
@@ -531,8 +558,8 @@ def main():
 
     # config
     n_epochs = 15
-    lr = 0.001 # 0.07
-    v_lr = 0.0001 # 0.015
+    lr = 0.001 # 0.07 - SGD
+    v_lr = 0.0001 # 0.015 - SGD
     batch_size = 128
     in_dim = 28 * 28  # MNIST dimensions
     n_classes = 10
@@ -554,13 +581,14 @@ def main():
                 n_classes,
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
-            )
+                strategy="local-receptive-fields",
+            ),
         ]
     )
     optimiser = Adam(model.params(), criterion, lr=lr)
 
     v_criterion = CrossEntropy()
-    v_model = Sequential([LinearLayer(in_dim, n_classes), ReLU()])
+    v_model = Sequential([LinearLayer(in_dim, n_classes)])
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
 
     print("Training dendritic model...")
@@ -575,14 +603,14 @@ def main():
     )
     v_test_loss, v_test_accuracy = evaluate(X_test, y_test, v_model, v_criterion)
 
-    # # plot accuracy of vanilla model vs dendritic model
+    # plot accuracy of vanilla model vs dendritic model
     plt.plot(v_train_accuracy, label="Vanilla")
     plt.plot(train_accuracy, label="Dendritic")
     plt.title("Accuracy over epochs")
     plt.legend()
     plt.show()
 
-    # # plot both models in comparison
+    # plot both models in comparison
     plt.plot(v_train_losses, label="Vanilla")
     plt.plot(train_losses, label="Dendritic")
     plt.title("Loss over epochs")
