@@ -16,6 +16,27 @@ class Sigmoid:
 
     def __call__(self, x):
         return self.forward(x)
+    
+
+class CrossEntropy:
+    def __init__(self):
+        self.softmax_output = None
+        self.target = None
+
+    def forward(self, logits, target):
+        # Apply softmax
+        exp_logits = np.exp(logits - np.max(logits))
+        self.softmax_output = exp_logits / np.sum(exp_logits)
+        self.target = target
+        
+        # Compute cross entropy loss
+        return -np.sum(target * np.log(self.softmax_output + 1e-15))
+
+    def backward(self):
+        return self.softmax_output - self.target
+
+    def __call__(self, logits, target):
+        return self.forward(logits, target)
 
 
 class ReLU:
@@ -23,7 +44,7 @@ class ReLU:
         return np.maximum(0, x)
 
     def backward(self, grad):
-        return np.where(grad > 0, 1, 0) * grad
+        return np.where(grad > 0, grad, 0)
 
     def __call__(self, x):
         return self.forward(x)
@@ -283,7 +304,8 @@ def main():
     # true_b = -0.1
     # targets = Sigmo"""  """id()._sigmoid(inputs @ true_w + true_b)
 
-    model = DendriticLayer(32 * 32, 3)
+    model = DendriticLayer(32 * 32, 10)
+    
     
     pred = model(inputs)
     print(pred)
