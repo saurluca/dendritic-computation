@@ -27,10 +27,11 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [x] baseline comparison model
 - [x] parameter count 
 - [x] use leaky relu
-- [ ] implement Adam
+- [x] implement Adam
 - [ ] weight decay
 - [ ] optional: implement dataloader class
 - [x] Combine both SGD classes
+- [ ] speed up sparse matrix calcuation using CSR
 
 
 ## Findings
