@@ -266,20 +266,17 @@ class LinearLayer:
     def __init__(self, in_dim, out_dim):
         self.W = cp.random.randn(out_dim, in_dim) * cp.sqrt(
             2.0 / (in_dim)
-        )  # He init
+        )  # He init, for ReLU
         self.b = cp.zeros(out_dim)
         self.dW = 0.0
         self.db = 0.0
         self.x = None
 
     def forward(self, x):
-        # print(f"x: {x}, self.W {self.W}, self.b {self.b}")
         self.x = x
         return x @ self.W.T + self.b
 
     def backward(self, grad):
-        # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
-        # self.dW = cp.outer(grad, self.x)
         self.dW = grad.T @ self.x
         self.db = grad.sum(axis=0)
         grad = grad @ self.W
@@ -298,7 +295,7 @@ class DendriticLayer:
     def __init__(
         self, in_dim, out_dim, strategy="random", n_dendrite_inputs=16, n_dendrites=3
     ):
-        assert strategy == "random", "Invalid strategy"
+        assert strategy in ["random"], "Invalid strategy"
 
         n_neurons = out_dim  # the number of neurons determins the size of the output
         n_soma_connections = (n_dendrites * n_neurons) 
@@ -308,7 +305,7 @@ class DendriticLayer:
 
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
-        )
+        ) # He init, for ReLU
         self.dendrite_b = cp.zeros((n_soma_connections))
         self.dendrite_dW = 0.0
         self.dendrite_db = 0.0
@@ -317,7 +314,7 @@ class DendriticLayer:
 
         self.soma_W = cp.random.randn(n_neurons, n_soma_connections) * cp.sqrt(
             2.0 / (n_soma_connections)
-        )
+        ) # He init, for ReLU
         self.soma_b = cp.zeros(n_neurons)
         self.soma_dW = 0.0
         self.soma_db = 0.0
@@ -361,13 +358,13 @@ class DendriticLayer:
         # pass through dendrites
         # print(f"x dendrite: {x.shape}, self.dendrite_W shape {self.dendrite_W.shape}")
         self.dendrite_x = x
-        x = self.dendrite_W @ x + self.dendrite_b
+        x = x @ self.dendrite_W.T + self.dendrite_b
         x = self.dendrite_activation(x)
 
         # pass through soma
         # print(f"x soma: {x.shape}, self.soma_W shape {self.soma_W.shape}")
         self.soma_x = x
-        x = self.soma_W @ x + self.soma_b
+        x = x @ self.soma_W.T + self.soma_b
         return self.soma_activation(x)
 
     def backward(self, grad):
@@ -375,16 +372,20 @@ class DendriticLayer:
         grad = self.soma_activation.backward(grad)
         
         # soma back pass, multiply with mask to keep only valid gradients
-        self.soma_dW = cp.outer(grad, self.soma_x) * self.soma_mask
-        self.soma_db = grad
-        soma_grad = self.soma_W.T @ grad 
+        # self.soma_dW = cp.outer(grad, self.soma_x) * self.soma_mask
+        # self.soma_db = grad
+        # soma_grad = self.soma_W.T @ grad 
+        self.soma_dW = grad.T @ self.soma_x * self.soma_mask
+        self.soma_db = grad.sum(axis=0)
+        soma_grad = grad @ self.soma_W
         
         soma_grad = self.dendrite_activation.backward(soma_grad)
 
-        # dendrite back pass
-        self.dendrite_dW = cp.outer(soma_grad, self.dendrite_x) * self.dendrite_mask
-        self.dendrite_db = soma_grad
-        dendrite_grad = self.dendrite_W.T @ soma_grad
+        # # dendrite back pass
+        self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
+        self.dendrite_db = soma_grad.sum(axis=0)
+        dendrite_grad = soma_grad @ self.dendrite_W
+        
         return dendrite_grad
     
     def num_params(self):
@@ -496,35 +497,36 @@ def main():
     cp.random.seed(42)
 
     # config
-    n_epochs = 10
-    lr = 0.01
+    n_epochs = 15
+    lr = 0.07
+    v_lr = 0.015
     batch_size = 128
     in_dim = 28 * 28  # MNIST dimension
     n_classes = 10
 
     # load data
     # subset_size=100
-    X_train, y_train, X_test, y_test = load_mnist_data(subset_size=10000)
+    X_train, y_train, X_test, y_test = load_mnist_data()
 
-    # criterion = CrossEntropy()
-    # model = Sequential([
-    #     DendriticLayer(in_dim, n_classes, n_dendrite_inputs=16, n_dendrites=32)
-    # ])
-    # optimiser = DendriteSGD(model.params(), criterion, lr=lr, momentum=0.9)
+    criterion = CrossEntropy()
+    model = Sequential([
+        DendriticLayer(in_dim, n_classes, n_dendrite_inputs=16, n_dendrites=32)
+    ])
+    optimiser = DendriteSGD(model.params(), criterion, lr=lr, momentum=0.9)
     
     v_criterion = CrossEntropy()
     v_model = Sequential([
         LinearLayer(in_dim, n_classes),
         ReLU()
     ])
-    v_optimiser = SGD(v_model.params(), v_criterion, lr=lr, momentum=0.9)
+    v_optimiser = SGD(v_model.params(), v_criterion, lr=v_lr, momentum=0.9)
 
     # train model
-    # train_losses, train_accuracy = train(
-    #     X_train, y_train, model, criterion, optimiser, n_epochs, batch_size
-    # )
-    # # run model evaluation
-    # test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
+    train_losses, train_accuracy = train(
+        X_train, y_train, model, criterion, optimiser, n_epochs, batch_size
+    )
+    # run model evaluation
+    test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
 
 
     # train vani
@@ -536,25 +538,25 @@ def main():
     
     # # plot accuracy of vanilla model vs dendritic model
     plt.plot(v_train_accuracy, label="Vanilla")
-    # plt.plot(train_accuracy, label="Dendritic")
+    plt.plot(train_accuracy, label="Dendritic")
     plt.title("Accuracy over epochs")
     plt.legend()
     plt.show()
     
     # # plot both models in comparison
     plt.plot(v_train_losses, label="Vanilla")
-    # plt.plot(train_losses, label="Dendritic")
+    plt.plot(train_losses, label="Dendritic")
     plt.title("Loss over epochs")
     plt.legend()
     plt.show()
     
-    # print(f"final train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}")
-    # print(f"final test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}")
-    # print(f"final train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}")
-    # print(f"final test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}")
+    print(f"final train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}")
+    print(f"final test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}")
+    print(f"final train accuracy dendritic model {round(train_accuracy[-1], 4)} vs vanilla {round(v_train_accuracy[-1], 4)}")
+    print(f"final test accuracy dendritic model {round(test_accuracy, 4)} vs vanilla {round(v_test_accuracy, 4)}")
 
-    # print(f"number of dendritic params: {model.params()[0].num_params()}")
-    # print(f"number of vanilla params: {v_model.params()[0].num_params()}")
+    print(f"number of dendritic params: {model.params()[0].num_params()}")
+    print(f"number of vanilla params: {v_model.params()[0].num_params()}")
 
 # if __name__ == "main":
 #     main()
