@@ -161,7 +161,7 @@ class SGD:
 
 
 class Adam:
-    def __init__(self, params, criterion, lr=0.01, beta1=0.9, beta2=0.999, eps=1e-8):
+    def __init__(self, params, criterion, lr=0.01, beta1=0.9, beta2=0.999, eps=1e-8, weight_decay=0.0):
         self.params = params
         self.criterion = criterion
         self.lr = lr
@@ -169,7 +169,8 @@ class Adam:
         self.beta2 = beta2
         self.eps = eps
         self.t = 0  # Global time step, increments once per batch
-
+        self.weight_decay = weight_decay
+        
         # Initialize moment estimates based on layer type
         self.m = []
         self.v = []
@@ -238,7 +239,8 @@ class Adam:
                 v_hat = self.v[i][j] / (1 - self.beta2**self.t)
 
                 # Update parameters
-                param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps)
+                param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps) 
+                param -= self.lr * self.weight_decay * param
 
     def __call__(self):
         return self.step()
@@ -623,8 +625,8 @@ def main():
 
     # model config
     n_dendrite_inputs = 16
-    n_dendrites = 16
-    n_neurons = 512
+    n_dendrites = 32
+    n_neurons = 256
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # data config

@@ -20,7 +20,6 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 
 - [x] Improve weight initilisation
 - [x] shuffle training data for each epoch
-- [ ] implement the other 2 dendric input strategies
 - [x] implement multiple layers
 - [x] batch processing
 - [x] gpu viable (jax, cupy?)
@@ -28,11 +27,14 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [x] parameter count 
 - [x] use leaky relu
 - [x] implement Adam
-- [ ] weight decay
-- [ ] optional: implement dataloader class
 - [x] Combine both SGD classes
-- [ ] speed up sparse matrix calcuation using CSR
 - [x] add Fashion MNIST
+- [ ] implement the other 2 dendric input strategies
+- [x] weight decay
+
+**Optional:**
+- [ ] speed up sparse matrix calcuation using CSR
+- [ ] optional: implement dataloader class
 
 
 ## Findings
@@ -55,6 +57,7 @@ Dendritic model sometimes has considerable time to setup dendrtic inputs
 - Compare training time of both
 - Adam vs SGD for this task
 - Compare different number of layers, breadth vs dept
+- Weight decay
 
 
 ## Notes
