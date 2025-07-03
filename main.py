@@ -1,4 +1,4 @@
-# 23%%
+# %%
 try:
     import cupy as cp
 
@@ -278,7 +278,7 @@ class DendriticLayer:
 
 def main():
     # for repoducability
-    cp.random.seed(1093812374124)
+    cp.random.seed(32)
 
     # config
     n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
@@ -295,8 +295,8 @@ def main():
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # vanilla model config
-    n_vanilla_neurons_1 = 12
-    n_vanilla_neurons_2 = 12
+    # n_vanilla_neurons_1 = 12
+    # n_vanilla_neurons_2 = 12
 
     # data config
     dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"

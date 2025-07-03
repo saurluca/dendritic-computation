@@ -10,7 +10,7 @@ except (ImportError, Exception) as e:
 
     print(f"CuPy not available or CUDA error ({type(e).__name__}), using NumPy (CPU)")
 from sklearn.datasets import fetch_openml
-
+import numpy as np
 
 def load_mnist_data(
     dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None
