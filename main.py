@@ -105,7 +105,6 @@ class ELU:
         return self.forward(x)
     
 
-
 class SGD:
     def __init__(self, params, criterion, lr=0.01, momentum=0.9):
         self.params = params
@@ -323,6 +322,8 @@ class DendriticLayer:
         self.learn_mask = learn_mask
         self.last_percentage = last_percentage  # Percentage of all network connections to replace
         self.prob_of_learning_mask = prob_of_learning_mask
+        self.resampled_idx = cp.array([], dtype=cp.int32)
+        self.num_mask_updates = 1
 
         self.in_dim = in_dim
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
@@ -438,7 +439,7 @@ class DendriticLayer:
         self.dendrite_db = soma_grad.sum(axis=0)
         dendrite_grad = soma_grad @ self.dendrite_W
         
-        if not (self.learn_mask and cp.random.random() < self.prob_of_learning_mask):
+        if not (self.learn_mask) or not cp.random.random() < self.prob_of_learning_mask / (self.num_mask_updates * 2):
             return dendrite_grad
             
         # Calculate total number of connections to remove across entire network
@@ -464,24 +465,30 @@ class DendriticLayer:
         n_inputs = self.dendrite_x.shape[1]
         max_resample = int(cp.max(counts))
         random_pool = cp.random.permutation(n_inputs)[:min(n_inputs, max_resample * 4)]
-        
+        print(f"updating mask")
         # Resample connections for each affected dendrite
         for dendrite_idx, n_to_resample in zip(unique_dendrites, counts):
-            available_mask = self.dendrite_mask[dendrite_idx] == 0
+            available_mask = (self.dendrite_mask[dendrite_idx] == 0) & (~cp.isin(cp.arange(self.dendrite_mask.shape[1]), self.resampled_idx))
+            # print(f"available_mask: {cp.sum(available_mask)}")
             available_candidates = random_pool[available_mask[random_pool]]
+            
+            if cp.sum(available_mask) < n_to_resample:
+                continue
             
             # Select new connections: try random pool first, fallback to all available
             if len(available_candidates) >= n_to_resample:
                 new_inputs = available_candidates[:n_to_resample]
             else:
-                all_available = cp.where(available_mask)[0]
-                n_available = min(len(all_available), n_to_resample)
-                new_inputs = cp.random.choice(all_available, size=n_available, replace=False) if n_available > 0 else cp.array([])
+                continue
+            #     all_available = cp.where(available_mask)[0]
+            #     n_available = min(len(all_available), n_to_resample)
+            #     new_inputs = cp.random.choice(all_available, size=n_available, replace=False) if n_available > 0 else cp.array([])
             if len(new_inputs) > 0:
                 self.dendrite_mask[dendrite_idx, new_inputs] = 1
                 # Reinitialize weights for newly added connections using He initialization
                 self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(len(new_inputs)) * cp.sqrt(2.0 / self.in_dim)
-               
+                self.resampled_idx = cp.concatenate((self.resampled_idx, new_inputs))
+                self.num_mask_updates += 1
             
         return dendrite_grad
 
@@ -695,7 +702,7 @@ def main():
     # dendriticmodel config
     n_dendrite_inputs = 16
     n_dendrites = 16
-    n_neurons = 32
+    n_neurons = 16
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # vanilla model config
@@ -719,7 +726,9 @@ def main():
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
-                learn_mask=False
+                learn_mask=True,
+                last_percentage=0.001,
+                prob_of_learning_mask=0.5
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -745,9 +754,7 @@ def main():
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
-                learn_mask=True,
-                last_percentage=0.05,
-                prob_of_learning_mask=0.05
+                learn_mask=False
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
