@@ -73,6 +73,7 @@ p ^(1/n) %, n being pruning round
 ### General ideas
 
 - Incoprotate weight decay?
+- plot weight over picture of a dendrite
 
 ### Triggerig resampling
 
@@ -81,10 +82,9 @@ p ^(1/n) %, n being pruning round
 - increasing prob till it happens
 - decreasing prob over training epochs
 
-
-
 ### Ideas for Sampling Strategies
 
 - use some kind of function (sigmoid?) to resamble distribution of weights that is ideal. make histogram of current and compare
 - prune the smallest p weights
 - probality function that assigns higher probaly to smaller weight to be resampled. Very unlikely for big weights, but not impossilbe
+- sample such that the weights convert against mean of He init

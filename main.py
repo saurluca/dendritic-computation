@@ -59,7 +59,8 @@ class DendriticLayer:
         percentage_resample=0.005,
         prob_of_resampling=0.05,
         resampling_criterion="gradient",
-        n_steps_to_prune=100,
+        scaling_resampling_percentage=False,
+        steps_to_resample=100,
     ):
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
             "Invalid strategy"
@@ -78,7 +79,8 @@ class DendriticLayer:
         self.percentage_resample = percentage_resample
         self.resampling_criterion = resampling_criterion  # gradient, magnitude
         self.prob_of_resampling = prob_of_resampling
-        self.n_steps_to_prune = n_steps_to_prune
+        self.steps_to_resample = steps_to_resample
+        self.scaling_resampling_percentage = scaling_resampling_percentage
 
         # to keep track of resampling
         self.num_mask_updates = 1
@@ -131,34 +133,7 @@ class DendriticLayer:
                 )
             elif strategy == "local-receptive-fields":
                 # According to the description: "16 inputs are chosen from the 4 × 4 neighborhood"
-                assert n_dendrite_inputs == 16, (
-                    "local-receptive-fields strategy requires exactly 16 dendrite inputs for a 4x4 neighborhood"
-                )
-
-                image_size = int(cp.sqrt(in_dim))  # 28 for MNIST
-
-                # Choose center pixel such that 4x4 neighborhood fits within image bounds
-                # For 4x4 grid centered at (center_row, center_col), we need:
-                # - Grid spans from (center_row-1, center_col-1) to (center_row+2, center_col+2)
-                # - So center_row must be in [1, image_size-3] and center_col must be in [1, image_size-3]
-                # This ensures the full 4x4 grid is within [0, image_size-1] bounds
-                min_center = 1
-                max_center = image_size - 3  # 25 for 28x28 image
-
-                center_row = cp.random.randint(min_center, max_center + 1)
-                center_col = cp.random.randint(min_center, max_center + 1)
-
-                # Create 4x4 neighborhood around center pixel
-                # The 4x4 grid will be positioned such that center is at position (1,1) in the grid
-                input_indices = []
-                for dr in range(-1, 3):  # -1, 0, 1, 2 (4 rows)
-                    for dc in range(-1, 3):  # -1, 0, 1, 2 (4 cols)
-                        row = center_row + dr
-                        col = center_col + dc
-                        idx = row * image_size + col
-                        input_indices.append(idx)
-
-                input_idx = cp.array(input_indices)
+                input_idx = self.create_local_receptive_field_mask()
             elif strategy == "fully-connected":
                 # sample all inputs for a given dendrite
                 input_idx = cp.arange(in_dim)
@@ -167,21 +142,50 @@ class DendriticLayer:
         # mask out unneeded weights, thus making weights sparse
         self.dendrite_W = self.dendrite_W * self.dendrite_mask
 
+    
+    def create_local_receptive_field_mask(self):
+        assert self.n_dendrite_inputs == 16, (
+                    "local-receptive-fields strategy requires exactly 16 dendrite inputs for a 4x4 neighborhood"
+                )
+
+        image_size = int(cp.sqrt(self.in_dim))  # 28 for MNIST
+
+        # Choose center pixel such that 4x4 neighborhood fits within image bounds
+        # For 4x4 grid centered at (center_row, center_col), we need:
+        # - Grid spans from (center_row-1, center_col-1) to (center_row+2, center_col+2)
+        # - So center_row must be in [1, image_size-3] and center_col must be in [1, image_size-3]
+        # This ensures the full 4x4 grid is within [0, image_size-1] bounds
+        min_center = 1
+        max_center = image_size - 3  # 25 for 28x28 image
+
+        center_row = cp.random.randint(min_center, max_center + 1)
+        center_col = cp.random.randint(min_center, max_center + 1)
+
+        # Create 4x4 neighborhood around center pixel
+        # The 4x4 grid will be positioned such that center is at position (1,1) in the grid
+        input_indices = []
+        for dr in range(-1, 3):  # -1, 0, 1, 2 (4 rows)
+            for dc in range(-1, 3):  # -1, 0, 1, 2 (4 cols)
+                row = center_row + dr
+                col = center_col + dc
+                idx = row * image_size + col
+                input_indices.append(idx)
+
+        input_idx = cp.array(input_indices)
+        return input_idx
+    
     def forward(self, x):
-        # pass through dendrites
-        # print(f"x dendrite: {x.shape}, self.dendrite_W shape {self.dendrite_W.shape}")
+        # dendrites forward pass
         self.dendrite_x = x
         x = x @ self.dendrite_W.T + self.dendrite_b
         x = self.dendrite_activation(x)
 
-        # pass through soma
-        # print(f"x soma: {x.shape}, self.soma_W shape {self.soma_W.shape}")
+        # soma forward pass
         self.soma_x = x
         x = x @ self.soma_W.T + self.soma_b
         return self.soma_activation(x)
 
     def backward(self, grad):
-        # print(f"shape of incoming grad {grad} \n shape of W {self.W.shape}")
         grad = self.soma_activation.backward(grad)
 
         # soma back pass, multiply with mask to keep only valid gradients
@@ -196,23 +200,36 @@ class DendriticLayer:
         self.dendrite_db = soma_grad.sum(axis=0)
         dendrite_grad = soma_grad @ self.dendrite_W
 
-        if not (self.synaptic_resampling):
-            return dendrite_grad
+        if self.synaptic_resampling:
+            self.update_steps += 1    
+            
+            # if enough steps have passed, resample
+            if self.update_steps >= self.steps_to_resample:
+                # reset step counter
+                self.update_steps = 0
+                self.resample_dendrites()
 
-        # if not cp.random.random() < self.prob_of_resampling / (self.num_mask_updates * 2):
-        #     return dendrite_grad
+            # resample based on probability
+            # if not cp.random.random() < self.prob_of_resampling / (self.num_mask_updates * 2):
+                # self.num_mask_updates += 1
+                # return dendrite_grad
 
-        if self.update_steps < self.n_steps_to_prune:
-            self.update_steps += 1
-            return dendrite_grad
+        return dendrite_grad
 
+    def resample_dendrites(self):
         # Calculate total number of connections to remove across entire network
+        if self.scaling_resampling_percentage:
+            resampling_percentage = self.percentage_resample * (1 / self.num_mask_updates)
+        else:
+            resampling_percentage = self.percentage_resample
         total_active_connections = int(cp.sum(self.dendrite_mask))
-        pruning_percentage = self.percentage_resample * (1 / self.num_mask_updates)
-        n_connections_to_remove = int(total_active_connections * pruning_percentage)
+        n_connections_to_remove = int(total_active_connections * resampling_percentage)
 
         if n_connections_to_remove == 0:
-            return dendrite_grad
+            print("no connections to remove, skipping resampling")
+            return
+        
+        print(f"resampling {resampling_percentage*100}% of dendritic inputs")
 
         # Find and remove top connections based on gradient or magnitude
         if self.resampling_criterion == "gradient":
@@ -232,22 +249,22 @@ class DendriticLayer:
 
         # Count connections lost per dendrite and resample
         unique_dendrites, counts = cp.unique(dendrite_indices, return_counts=True)
-        if len(counts) == 0:
-            return dendrite_grad
 
         # Pre-generate random candidates for resampling
         n_inputs = self.dendrite_x.shape[1]
         max_resample = int(cp.max(counts))
+        print(f"max_resample: {max_resample}, shape of counts: {counts.shape}")
+        # TODO implement random draw with replacement, careful not in same dendrite, othwerise duplicates
         random_pool = cp.random.permutation(n_inputs)[: min(n_inputs, max_resample * 4)]
-        print(f"updating mask with percentage {pruning_percentage}")
+        
         # Resample connections for each affected dendrite
         for dendrite_idx, n_to_resample in zip(unique_dendrites, counts):
             available_mask = self.dendrite_mask[dendrite_idx] == 0
-            # print(f"available_mask: {cp.sum(available_mask)}")
             available_candidates = random_pool[available_mask[random_pool]]
 
             # if not enough candidates, skip
             if len(available_candidates) < n_to_resample:
+                print("Not enoguh candidates avialbe, continuing")
                 continue
 
             new_inputs = available_candidates[:n_to_resample]
@@ -256,10 +273,7 @@ class DendriticLayer:
             self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(
                 len(new_inputs)
             ) * cp.sqrt(2.0 / self.in_dim)
-            self.num_mask_updates += 1
 
-        self.update_steps = 0
-        return dendrite_grad
 
     def num_params(self):
         print(
@@ -300,7 +314,7 @@ def main():
 
     # data config
     dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
-    subset_size = None
+    subset_size = 60000
 
     X_train, y_train, X_test, y_test = load_mnist_data(
         dataset=dataset, subset_size=subset_size
@@ -318,8 +332,9 @@ def main():
                 synaptic_resampling=True,
                 percentage_resample=0.5,
                 # prob_of_resampling=0.5,
-                n_steps_to_prune=200,
+                steps_to_resample=50,
                 resampling_criterion="magnitude",
+                scaling_resampling_percentage=False,
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -353,8 +368,8 @@ def main():
     )
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
 
-    print(f"number of dendritic params: {model.num_params()}")
-    print(f"number of vanilla params: {v_model.num_params()}")
+    print(f"number of model_1 params: {model.num_params()}")
+    print(f"number of model_2 params: {v_model.num_params()}")
 
     # raise Exception("Stop here")
 
