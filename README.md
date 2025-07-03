@@ -6,6 +6,7 @@ specific spatial patches or random subsets of inputs, testing how this structura
 learning.
 
 ## Sources
+
 This work is based on:
 
 1. London, M., & Häusser, M. (2005). Dendritic computation. Annual Review of
@@ -14,9 +15,7 @@ Neuroscience, 28, 503-532.
 2. Chavlis, S. and Poirazi, P., 2025. Dendrites endow artificial neural networks with
 accurate, robust and parameter-efficient learning. Nature Communications, 16(1), p.943.
 
-
-
-## Ideas:
+## Ideas
 
 - [x] Improve weight initilisation
 - [x] shuffle training data for each epoch
@@ -33,6 +32,7 @@ accurate, robust and parameter-efficient learning. Nature Communications, 16(1),
 - [x] weight decay
 
 **Optional:**
+
 - [ ] speed up sparse matrix calcuation using CSR
 - [ ] optional: implement dataloader class
 
@@ -61,14 +61,30 @@ Using cupy Compressed Sparse Row (CSR) matrix represnation, able to achieve arou
 - Compare different number of layers, breadth vs dept
 - Weight decay
 
-
-
 ## Notes
 
 For comparison: use 3 dendrite layers
-
 
 ## Structural plasiticy
 
 Deteirme weights to prune:
 p ^(1/n) %, n being pruning round
+
+### General ideas
+
+- Incoprotate weight decay?
+
+### Triggerig resampling
+
+- after n update steps
+- flat probability
+- increasing prob till it happens
+- decreasing prob over training epochs
+
+
+
+### Ideas for Sampling Strategies
+
+- use some kind of function (sigmoid?) to resamble distribution of weights that is ideal. make histogram of current and compare
+- prune the smallest p weights
+- probality function that assigns higher probaly to smaller weight to be resampled. Very unlikely for big weights, but not impossilbe

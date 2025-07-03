@@ -309,24 +309,23 @@ class DendriticLayer:
 
     def __init__(
         self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=4,
-        learn_mask=True, percentage_prune=0.005, prob_of_learning_mask=0.05, prune_strategy="gradient", n_steps_to_prune=100
+        synaptic_resampling=True, percentage_resample=0.005, prob_of_resampling=0.05, resampling_criterion="gradient", n_steps_to_prune=100
     ):
-        assert strategy in ["random", "local-receptive-fields", "fully-connected"], (
-            "Invalid strategy"
-        )
-        assert prune_strategy in ["gradient", "magnitude"], "Invalid prune strategy"
-        assert learn_mask == False or strategy == "random", "learn_mask is only supported for random strategy"
+        assert strategy in ("random", "local-receptive-fields", "fully-connected"), "Invalid strategy"
+        assert resampling_criterion in ("gradient", "magnitude"), "Invalid resampling_criterion"
+        assert not synaptic_resampling or strategy == "random", "synaptic_resampling is only supported for random strategy"
 
         n_soma_connections = n_dendrites * n_neurons
         
-        # learn mask or not
-        self.learn_mask = learn_mask
-        self.percentage_prune = percentage_prune  # Percentage of all network connections to replace
-        self.prob_of_learning_mask = prob_of_learning_mask
-        self.resampled_idx = cp.array([], dtype=cp.int32)
-        self.num_mask_updates = 1
-        self.prune_strategy = prune_strategy
+        # dynamicly resample 
+        self.synaptic_resampling = synaptic_resampling
+        self.percentage_resample = percentage_resample
+        self.resampling_criterion = resampling_criterion # gradient, magnitude
+        self.prob_of_resampling = prob_of_resampling
         self.n_steps_to_prune = n_steps_to_prune
+        
+        # to keep track of resampling
+        self.num_mask_updates = 1
         self.update_steps = 0
         
         self.in_dim = in_dim
@@ -443,10 +442,10 @@ class DendriticLayer:
         self.dendrite_db = soma_grad.sum(axis=0)
         dendrite_grad = soma_grad @ self.dendrite_W
         
-        if not (self.learn_mask):
+        if not (self.synaptic_resampling):
             return dendrite_grad
 
-        # if not cp.random.random() < self.prob_of_learning_mask / (self.num_mask_updates * 2):
+        # if not cp.random.random() < self.prob_of_resampling / (self.num_mask_updates * 2):
         #     return dendrite_grad
         
         if self.update_steps < self.n_steps_to_prune:
@@ -456,19 +455,19 @@ class DendriticLayer:
 
         # Calculate total number of connections to remove across entire network
         total_active_connections = int(cp.sum(self.dendrite_mask))
-        pruning_percentage = self.percentage_prune * (1 / self.num_mask_updates)
+        pruning_percentage = self.percentage_resample * (1 / self.num_mask_updates)
         n_connections_to_remove = int(total_active_connections * pruning_percentage)
         
         if n_connections_to_remove == 0:
             return dendrite_grad
             
         # Find and remove top connections based on gradient or magnitude
-        if self.prune_strategy == "gradient":
+        if self.resampling_criterion == "gradient":
             active_gradients = cp.abs(self.dendrite_dW) * self.dendrite_mask
             metric = active_gradients.flatten()
             # remove the largest gradient connections
             flat_indices = cp.argsort(metric)[-n_connections_to_remove:]
-        elif self.prune_strategy == "magnitude":
+        elif self.resampling_criterion == "magnitude":
             metric = cp.abs(self.dendrite_W).flatten()
             # remove the smallest magnitude connections
             flat_indices = cp.argsort(metric)[:n_connections_to_remove]
@@ -489,27 +488,18 @@ class DendriticLayer:
         # Resample connections for each affected dendrite
         for dendrite_idx, n_to_resample in zip(unique_dendrites, counts):
             available_mask = (self.dendrite_mask[dendrite_idx] == 0) 
-            # & (~cp.isin(cp.arange(self.dendrite_mask.shape[1]), self.resampled_idx))
             # print(f"available_mask: {cp.sum(available_mask)}")
             available_candidates = random_pool[available_mask[random_pool]]
             
-            if cp.sum(available_mask) < n_to_resample:
+            # if not enough candidates, skip
+            if len(available_candidates) < n_to_resample:
                 continue
             
-            # Select new connections: try random pool first, fallback to all available
-            if len(available_candidates) >= n_to_resample:
-                new_inputs = available_candidates[:n_to_resample]
-            else:
-                continue
-            #     all_available = cp.where(available_mask)[0]
-            #     n_available = min(len(all_available), n_to_resample)
-            #     new_inputs = cp.random.choice(all_available, size=n_available, replace=False) if n_available > 0 else cp.array([])
-            if len(new_inputs) > 0:
-                self.dendrite_mask[dendrite_idx, new_inputs] = 1
-                # Reinitialize weights for newly added connections using He initialization
-                self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(len(new_inputs)) * cp.sqrt(2.0 / self.in_dim)
-                self.resampled_idx = cp.concatenate((self.resampled_idx, new_inputs))
-                self.num_mask_updates += 1
+            new_inputs = available_candidates[:n_to_resample]
+            self.dendrite_mask[dendrite_idx, new_inputs] = 1
+            # Reinitialize weights for newly added connections using He initialization
+            self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(len(new_inputs)) * cp.sqrt(2.0 / self.in_dim)
+            self.num_mask_updates += 1
         
         self.update_steps = 0
         return dendrite_grad
@@ -748,11 +738,11 @@ def main():
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
-                learn_mask=True,
-                percentage_prune=0.5,
-                # prob_of_learning_mask=0.5,
+                synaptic_resampling=True,
+                percentage_resample=0.5,
+                # prob_of_resampling=0.5,
                 n_steps_to_prune=200,
-                prune_strategy="magnitude"
+                resampling_criterion="magnitude"
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -778,7 +768,7 @@ def main():
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
-                learn_mask=False
+                synaptic_resampling=False
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
