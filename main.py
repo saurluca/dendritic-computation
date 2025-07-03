@@ -309,14 +309,22 @@ class DendriticLayer:
     """A sparse dendritic layer, consiting of dendrites and somas"""
 
     def __init__(
-        self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=4
+        self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=4,
+        learn_mask=True, last_percentage=0.005, prob_of_learning_mask=0.05
     ):
         assert strategy in ["random", "local-receptive-fields", "fully-connected"], (
             "Invalid strategy"
         )
+        assert learn_mask == False or strategy == "random", "learn_mask is only supported for random strategy"
 
         n_soma_connections = n_dendrites * n_neurons
+        
+        # learn mask or not
+        self.learn_mask = learn_mask
+        self.last_percentage = last_percentage  # Percentage of all network connections to replace
+        self.prob_of_learning_mask = prob_of_learning_mask
 
+        self.in_dim = in_dim
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
         )  # He init, for ReLU
@@ -425,10 +433,57 @@ class DendriticLayer:
 
         soma_grad = self.dendrite_activation.backward(soma_grad)
 
-        # # dendrite back pass
+        # dendrite back pass
         self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
         self.dendrite_db = soma_grad.sum(axis=0)
-        return soma_grad @ self.dendrite_W
+        dendrite_grad = soma_grad @ self.dendrite_W
+        
+        if not (self.learn_mask and cp.random.random() < self.prob_of_learning_mask):
+            return dendrite_grad
+            
+        # Calculate total number of connections to remove across entire network
+        total_active_connections = int(cp.sum(self.dendrite_mask))
+        n_connections_to_remove = int(total_active_connections * self.last_percentage)
+        
+        if n_connections_to_remove == 0:
+            return dendrite_grad
+            
+        # Find and remove top connections based on gradient magnitude
+        active_gradients = cp.abs(self.dendrite_dW) * self.dendrite_mask
+        flat_gradients = active_gradients.flatten()
+        flat_indices = cp.argsort(flat_gradients)[-n_connections_to_remove:]
+        dendrite_indices, input_indices = cp.unravel_index(flat_indices, self.dendrite_dW.shape)
+        self.dendrite_mask[dendrite_indices, input_indices] = 0
+        
+        # Count connections lost per dendrite and resample
+        unique_dendrites, counts = cp.unique(dendrite_indices, return_counts=True)
+        if len(counts) == 0:
+            return dendrite_grad
+            
+        # Pre-generate random candidates for resampling
+        n_inputs = self.dendrite_x.shape[1]
+        max_resample = int(cp.max(counts))
+        random_pool = cp.random.permutation(n_inputs)[:min(n_inputs, max_resample * 4)]
+        
+        # Resample connections for each affected dendrite
+        for dendrite_idx, n_to_resample in zip(unique_dendrites, counts):
+            available_mask = self.dendrite_mask[dendrite_idx] == 0
+            available_candidates = random_pool[available_mask[random_pool]]
+            
+            # Select new connections: try random pool first, fallback to all available
+            if len(available_candidates) >= n_to_resample:
+                new_inputs = available_candidates[:n_to_resample]
+            else:
+                all_available = cp.where(available_mask)[0]
+                n_available = min(len(all_available), n_to_resample)
+                new_inputs = cp.random.choice(all_available, size=n_available, replace=False) if n_available > 0 else cp.array([])
+            if len(new_inputs) > 0:
+                self.dendrite_mask[dendrite_idx, new_inputs] = 1
+                # Reinitialize weights for newly added connections using He initialization
+                self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(len(new_inputs)) * cp.sqrt(2.0 / self.in_dim)
+               
+            
+        return dendrite_grad
 
     def num_params(self):
         print(
@@ -664,6 +719,7 @@ def main():
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
+                learn_mask=False
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -672,13 +728,29 @@ def main():
     optimiser = Adam(model.params(), criterion, lr=lr)
 
     v_criterion = CrossEntropy()
+    # v_model = Sequential(
+    #     [
+    #         LinearLayer(in_dim, n_vanilla_neurons_1),
+    #         LeakyReLU(),
+    #         LinearLayer(n_vanilla_neurons_1, n_vanilla_neurons_2),
+    #         LeakyReLU(),
+    #         LinearLayer(n_vanilla_neurons_2, n_classes),
+    #     ]
+    # )
     v_model = Sequential(
         [
-            LinearLayer(in_dim, n_vanilla_neurons_1),
+            DendriticLayer(
+                in_dim,
+                n_neurons,
+                n_dendrite_inputs=n_dendrite_inputs,
+                n_dendrites=n_dendrites,
+                strategy=strategy,
+                learn_mask=True,
+                last_percentage=0.05,
+                prob_of_learning_mask=0.05
+            ),
             LeakyReLU(),
-            LinearLayer(n_vanilla_neurons_1, n_vanilla_neurons_2),
-            LeakyReLU(),
-            LinearLayer(n_vanilla_neurons_2, n_classes),
+            LinearLayer(n_neurons, n_classes),
         ]
     )
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
