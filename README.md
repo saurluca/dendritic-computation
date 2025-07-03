@@ -62,6 +62,13 @@ Using cupy Compressed Sparse Row (CSR) matrix represnation, able to achieve arou
 - Weight decay
 
 
+
 ## Notes
 
 For comparison: use 3 dendrite layers
+
+
+## Structural plasiticy
+
+Deteirme weights to prune:
+p ^(1/n) %, n being pruning round

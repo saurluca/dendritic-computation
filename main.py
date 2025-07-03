@@ -309,22 +309,26 @@ class DendriticLayer:
 
     def __init__(
         self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=4,
-        learn_mask=True, last_percentage=0.005, prob_of_learning_mask=0.05
+        learn_mask=True, percentage_prune=0.005, prob_of_learning_mask=0.05, prune_strategy="gradient", n_steps_to_prune=100
     ):
         assert strategy in ["random", "local-receptive-fields", "fully-connected"], (
             "Invalid strategy"
         )
+        assert prune_strategy in ["gradient", "magnitude"], "Invalid prune strategy"
         assert learn_mask == False or strategy == "random", "learn_mask is only supported for random strategy"
 
         n_soma_connections = n_dendrites * n_neurons
         
         # learn mask or not
         self.learn_mask = learn_mask
-        self.last_percentage = last_percentage  # Percentage of all network connections to replace
+        self.percentage_prune = percentage_prune  # Percentage of all network connections to replace
         self.prob_of_learning_mask = prob_of_learning_mask
         self.resampled_idx = cp.array([], dtype=cp.int32)
         self.num_mask_updates = 1
-
+        self.prune_strategy = prune_strategy
+        self.n_steps_to_prune = n_steps_to_prune
+        self.update_steps = 0
+        
         self.in_dim = in_dim
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
@@ -439,20 +443,36 @@ class DendriticLayer:
         self.dendrite_db = soma_grad.sum(axis=0)
         dendrite_grad = soma_grad @ self.dendrite_W
         
-        if not (self.learn_mask) or not cp.random.random() < self.prob_of_learning_mask / (self.num_mask_updates * 2):
+        if not (self.learn_mask):
             return dendrite_grad
-            
+
+        # if not cp.random.random() < self.prob_of_learning_mask / (self.num_mask_updates * 2):
+        #     return dendrite_grad
+        
+        if self.update_steps < self.n_steps_to_prune:
+            self.update_steps += 1
+            return dendrite_grad
+
+
         # Calculate total number of connections to remove across entire network
         total_active_connections = int(cp.sum(self.dendrite_mask))
-        n_connections_to_remove = int(total_active_connections * self.last_percentage)
+        pruning_percentage = self.percentage_prune * (1 / self.num_mask_updates)
+        n_connections_to_remove = int(total_active_connections * pruning_percentage)
         
         if n_connections_to_remove == 0:
             return dendrite_grad
             
-        # Find and remove top connections based on gradient magnitude
-        active_gradients = cp.abs(self.dendrite_dW) * self.dendrite_mask
-        flat_gradients = active_gradients.flatten()
-        flat_indices = cp.argsort(flat_gradients)[-n_connections_to_remove:]
+        # Find and remove top connections based on gradient or magnitude
+        if self.prune_strategy == "gradient":
+            active_gradients = cp.abs(self.dendrite_dW) * self.dendrite_mask
+            metric = active_gradients.flatten()
+            # remove the largest gradient connections
+            flat_indices = cp.argsort(metric)[-n_connections_to_remove:]
+        elif self.prune_strategy == "magnitude":
+            metric = cp.abs(self.dendrite_W).flatten()
+            # remove the smallest magnitude connections
+            flat_indices = cp.argsort(metric)[:n_connections_to_remove]
+ 
         dendrite_indices, input_indices = cp.unravel_index(flat_indices, self.dendrite_dW.shape)
         self.dendrite_mask[dendrite_indices, input_indices] = 0
         
@@ -465,10 +485,11 @@ class DendriticLayer:
         n_inputs = self.dendrite_x.shape[1]
         max_resample = int(cp.max(counts))
         random_pool = cp.random.permutation(n_inputs)[:min(n_inputs, max_resample * 4)]
-        print(f"updating mask")
+        print(f"updating mask with percentage {pruning_percentage}")
         # Resample connections for each affected dendrite
         for dendrite_idx, n_to_resample in zip(unique_dendrites, counts):
-            available_mask = (self.dendrite_mask[dendrite_idx] == 0) & (~cp.isin(cp.arange(self.dendrite_mask.shape[1]), self.resampled_idx))
+            available_mask = (self.dendrite_mask[dendrite_idx] == 0) 
+            # & (~cp.isin(cp.arange(self.dendrite_mask.shape[1]), self.resampled_idx))
             # print(f"available_mask: {cp.sum(available_mask)}")
             available_candidates = random_pool[available_mask[random_pool]]
             
@@ -489,7 +510,8 @@ class DendriticLayer:
                 self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(len(new_inputs)) * cp.sqrt(2.0 / self.in_dim)
                 self.resampled_idx = cp.concatenate((self.resampled_idx, new_inputs))
                 self.num_mask_updates += 1
-            
+        
+        self.update_steps = 0
         return dendrite_grad
 
     def num_params(self):
@@ -727,8 +749,10 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
                 learn_mask=True,
-                last_percentage=0.001,
-                prob_of_learning_mask=0.5
+                percentage_prune=0.5,
+                # prob_of_learning_mask=0.5,
+                n_steps_to_prune=200,
+                prune_strategy="magnitude"
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
