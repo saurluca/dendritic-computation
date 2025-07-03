@@ -558,7 +558,7 @@ def train(
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
     total_batches = n_epochs * num_batches_per_epoch
     
-    with tqdm(total=total_batches, desc="Training") as pbar:
+    with tqdm(total=total_batches, desc="Training ") as pbar:
         for epoch in range(n_epochs):
             train_loss = 0.0
             correct_pred = 0.0
@@ -598,7 +598,7 @@ def evaluate(
     y_test,
     model,
     criterion,
-    batch_size=128,
+    batch_size=256,
 ):
     n_samples = len(X_test)
     test_loss = 0.0
@@ -606,7 +606,7 @@ def evaluate(
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
     for X, target in tqdm(
         create_batches(X_test, y_test, batch_size, shuffle=False, drop_last=False),
-        desc="Testing",
+        desc="Testing ",
     ):
         # forward pass
         pred = model(X)
@@ -634,13 +634,14 @@ def main():
 
     # dendriticmodel config
     n_dendrite_inputs = 16
-    n_dendrites = 8
+    n_dendrites = 16
     n_neurons = 32
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # vanilla model config
-    n_vanilla_neurons = 64
-
+    n_vanilla_neurons_1 = 12
+    n_vanilla_neurons_2 = 12
+    
     # data config
     dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
     subset_size = None
@@ -668,9 +669,11 @@ def main():
     v_criterion = CrossEntropy()
     v_model = Sequential(
         [
-            LinearLayer(in_dim, n_vanilla_neurons),
+            LinearLayer(in_dim, n_vanilla_neurons_1),
             LeakyReLU(),
-            LinearLayer(n_vanilla_neurons, n_classes),
+            LinearLayer(n_vanilla_neurons_1, n_vanilla_neurons_2),
+            LeakyReLU(),
+            LinearLayer(n_vanilla_neurons_2, n_classes),
         ]
     )
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
