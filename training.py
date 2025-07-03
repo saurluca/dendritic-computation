@@ -41,6 +41,7 @@ def train(
     optimiser,
     n_epochs=2,
     batch_size=128,
+    track_variance=False,
 ):
     train_losses = []
     accuracy = []
@@ -49,6 +50,9 @@ def train(
     n_samples = len(X_train)
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
     total_batches = n_epochs * num_batches_per_epoch
+
+    variance_of_grads = [] 
+    variance_of_weights = []
 
     with tqdm(total=total_batches, desc="Training ") as pbar:
         for epoch in range(n_epochs):
@@ -70,8 +74,13 @@ def train(
                 # backward pass
                 optimiser.zero_grad()
                 grad = criterion.backward()
-                model.backward(grad)
+                model_grads = model.backward(grad)
                 optimiser.step()
+                
+                if track_variance:
+                    variance_of_grads.append(cp.var(model_grads))
+                    variance_of_weights.append(model.var_params())
+
 
                 # Update progress bar
                 pbar.set_postfix(
@@ -94,7 +103,7 @@ def train(
             accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
             test_losses.append(float(epoch_test_loss))
             test_accuracy.append(float(epoch_test_accuracy))
-    return train_losses, accuracy, test_losses, test_accuracy
+    return train_losses, accuracy, test_losses, test_accuracy, variance_of_grads, variance_of_weights
 
 
 def evaluate(
@@ -137,9 +146,10 @@ def compare_models(
     batch_size=256,
     model_name_1="Dendritic",
     model_name_2="Vanilla",
+    track_variance=False,
 ):
     print(f"Training {model_name_1} model...")
-    train_losses_1, train_accuracy_1, test_losses_1, test_accuracy_1 = train(
+    train_losses_1, train_accuracy_1, test_losses_1, test_accuracy_1, variance_of_grads_1, variance_of_weights_1 = train(
         X_train,
         y_train,
         X_test,
@@ -149,10 +159,11 @@ def compare_models(
         optimiser_1,
         n_epochs,
         batch_size,
+        track_variance,
     )
 
     print(f"Training {model_name_2} model...")
-    train_losses_2, train_accuracy_2, test_losses_2, test_accuracy_2 = train(
+    train_losses_2, train_accuracy_2, test_losses_2, test_accuracy_2, variance_of_grads_2, variance_of_weights_2 = train(
         X_train,
         y_train,
         X_test,
@@ -162,6 +173,7 @@ def compare_models(
         optimiser_2,
         n_epochs,
         batch_size,
+        track_variance,
     )
 
     # plot accuracy of vanilla model vs dendritic model
@@ -189,6 +201,44 @@ def compare_models(
     plt.title("Loss over epochs")
     plt.legend()
     plt.show()
+    
+    # plot variance of grads
+    if track_variance:
+        # Convert CuPy arrays to NumPy arrays for plotting
+        variance_grads_1_np = [float(x.get()) if hasattr(x, 'get') else float(x) for x in variance_of_grads_1]
+        variance_grads_2_np = [float(x.get()) if hasattr(x, 'get') else float(x) for x in variance_of_grads_2]
+        
+        # Compute mean variance of gradients for each model
+        mean_variance_grads_1 = sum(variance_grads_1_np) / len(variance_grads_1_np)
+        mean_variance_grads_2 = sum(variance_grads_2_np) / len(variance_grads_2_np)
+        
+        # Handle variance_of_weights which is a list of lists (one list per batch, containing variances per layer)
+        # Compute mean variance across all layers for each batch
+        variance_weights_1_np = []
+        for batch_variances in variance_of_weights_1:
+            # batch_variances is a list of variances from each layer
+            # Convert each variance to float and compute mean
+            layer_variances = [float(var.get()) if hasattr(var, 'get') else float(var) for var in batch_variances]
+            variance_weights_1_np.append(sum(layer_variances) / len(layer_variances))
+        
+        variance_weights_2_np = []
+        for batch_variances in variance_of_weights_2:
+            # batch_variances is a list of variances from each layer
+            # Convert each variance to float and compute mean
+            layer_variances = [float(var.get()) if hasattr(var, 'get') else float(var) for var in batch_variances]
+            variance_weights_2_np.append(sum(layer_variances) / len(layer_variances))
+        
+        plt.plot([mean_variance_grads_1], label=f"{model_name_1} Mean Variance of Gradients", color="green", linestyle="--")
+        plt.plot([mean_variance_grads_2], label=f"{model_name_2} Mean Variance of Gradients", color="blue", linestyle="--")
+        plt.title("Mean Variance of Gradients over epochs")
+        plt.legend()
+        plt.show()
+        
+        plt.plot(variance_weights_1_np, label=f"{model_name_1} Variance of Weights", color="green", linestyle="--")
+        plt.plot(variance_weights_2_np, label=f"{model_name_2} Variance of Weights", color="blue", linestyle="--")
+        plt.title("Variance of Weights over epochs")
+        plt.legend()
+        plt.show()
 
     print(
         f"train loss {model_name_1} model {round(train_losses_1[-1], 4)} vs {model_name_2} {round(train_losses_2[-1], 4)}"

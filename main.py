@@ -40,6 +40,9 @@ class LinearLayer:
 
     def num_params(self):
         return self.W.size + self.b.size
+    
+    def var_params(self):
+        return cp.var(self.W) + cp.var(self.b)
 
     def __call__(self, x):
         return self.forward(x)
@@ -60,6 +63,7 @@ class DendriticLayer:
         prob_of_resampling=0.05,
         resampling_criterion="gradient",
         scaling_resampling_percentage=False,
+        resample_with_permutation=False,
         steps_to_resample=100,
     ):
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
@@ -81,12 +85,14 @@ class DendriticLayer:
         self.prob_of_resampling = prob_of_resampling
         self.steps_to_resample = steps_to_resample
         self.scaling_resampling_percentage = scaling_resampling_percentage
+        self.resample_with_permutation = resample_with_permutation
 
         # to keep track of resampling
         self.num_mask_updates = 1
         self.update_steps = 0
 
         self.in_dim = in_dim
+        self.n_dendrite_inputs = n_dendrite_inputs
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
         )  # He init, for ReLU
@@ -285,6 +291,9 @@ class DendriticLayer:
             + cp.sum(self.soma_mask)
             + self.soma_b.size
         )
+        
+    def var_params(self):
+        return cp.var(self.dendrite_W) + cp.var(self.dendrite_b) + cp.var(self.soma_W) + cp.var(self.soma_b)
 
     def __call__(self, x):
         return self.forward(x)
@@ -295,7 +304,7 @@ def main():
     cp.random.seed(32)
 
     # config
-    n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
+    n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
     lr = 0.001  # 0.07 - SGD
     v_lr = 0.001  # 0.015 - SGD
     batch_size = 128
@@ -304,8 +313,8 @@ def main():
 
     # dendriticmodel config
     n_dendrite_inputs = 16
-    n_dendrites = 16
-    n_neurons = 16
+    n_dendrites = 8
+    n_neurons = 8
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # vanilla model config
@@ -313,8 +322,8 @@ def main():
     # n_vanilla_neurons_2 = 12
 
     # data config
-    dataset = "mnist"  # Choose between "mnist" or "fashion-mnist"
-    subset_size = 60000
+    dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
+    subset_size = None
 
     X_train, y_train, X_test, y_test = load_mnist_data(
         dataset=dataset, subset_size=subset_size
@@ -330,11 +339,12 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
                 synaptic_resampling=True,
-                percentage_resample=0.5,
+                percentage_resample=0.25,
                 # prob_of_resampling=0.5,
-                steps_to_resample=50,
+                steps_to_resample=1,
                 resampling_criterion="magnitude",
                 scaling_resampling_percentage=False,
+                resample_with_permutation=False,
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -387,6 +397,7 @@ def main():
         batch_size=batch_size,
         model_name_1="Dendritic",
         model_name_2="Vanilla",
+        track_variance=True,
     )
 
 
