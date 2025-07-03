@@ -295,7 +295,7 @@ def main():
     cp.random.seed(32)
 
     # config
-    n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
+    n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
     lr = 0.001  # 0.07 - SGD
     v_lr = 0.001  # 0.015 - SGD
     batch_size = 128
@@ -313,7 +313,7 @@ def main():
     # n_vanilla_neurons_2 = 12
 
     # data config
-    dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
+    dataset = "mnist"  # Choose between "mnist" or "fashion-mnist"
     subset_size = 60000
 
     X_train, y_train, X_test, y_test = load_mnist_data(

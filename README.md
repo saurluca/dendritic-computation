@@ -74,6 +74,8 @@ p ^(1/n) %, n being pruning round
 
 - Incoprotate weight decay?
 - plot weight over picture of a dendrite
+- Why does He init work? should I also choose it
+- check if dendirte connctions remains coanst with sampling
 
 ### Triggerig resampling
 
