@@ -51,6 +51,8 @@ Local receptive fields requrie more n_dendrites (16 problem, 32 good) to work. o
 
 Dendritic model sometimes has considerable time to setup dendrtic inputs
 
+Using cupy Compressed Sparse Row (CSR) matrix represnation, able to achieve around a 50% speedup. Still Dendritic model a lot slower to train then vanilla model. 
+
 ## Explore
 
 - Effect of momentum on both

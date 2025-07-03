@@ -556,31 +556,40 @@ def train(
     accuracy = []
     n_samples = len(X_train)
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
-    for epoch in tqdm(range(n_epochs), desc="Training"):
-        train_loss = 0.0
-        correct_pred = 0.0
-        for X, target in create_batches(X_train, y_train, batch_size, shuffle=True):
-            # forward pass
-            pred = model(X)
-            batch_loss = criterion(pred, target)
-            train_loss += batch_loss
-            # if most likely prediction equals target add to correct predictions
-            batch_correct = cp.sum(cp.argmax(pred, axis=1) == cp.argmax(target, axis=1))
-            correct_pred += batch_correct
+    total_batches = n_epochs * num_batches_per_epoch
+    
+    with tqdm(total=total_batches, desc="Training") as pbar:
+        for epoch in range(n_epochs):
+            train_loss = 0.0
+            correct_pred = 0.0
+            for batch_idx, (X, target) in enumerate(create_batches(X_train, y_train, batch_size, shuffle=True)):
+                # forward pass
+                pred = model(X)
+                batch_loss = criterion(pred, target)
+                train_loss += batch_loss
+                # if most likely prediction equals target add to correct predictions
+                batch_correct = cp.sum(cp.argmax(pred, axis=1) == cp.argmax(target, axis=1))
+                correct_pred += batch_correct
 
-            # backward pass
-            optimiser.zero_grad()
-            grad = criterion.backward()
-            model.backward(grad)
-            optimiser.step()
+                # backward pass
+                optimiser.zero_grad()
+                grad = criterion.backward()
+                model.backward(grad)
+                optimiser.step()
 
-            # print(f"y {target}, pred {pred}, loss {loss}")
-        normalised_train_loss = train_loss / num_batches_per_epoch
-        train_losses.append(
-            float(normalised_train_loss)
-        )  # Convert to float for plotting
-        epoch_accuracy = correct_pred / n_samples
-        accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
+                # Update progress bar
+                pbar.set_postfix({
+                    'Epoch': f'{epoch+1}/{n_epochs}',
+                    'Batch': f'{batch_idx+1}/{num_batches_per_epoch}',
+                    'Loss': f'{float(batch_loss):.4f}'
+                })
+                pbar.update(1)
+            normalised_train_loss = train_loss / num_batches_per_epoch
+            train_losses.append(
+                float(normalised_train_loss)
+            )  # Convert to float for plotting
+            epoch_accuracy = correct_pred / n_samples
+            accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
     return train_losses, accuracy
 
 
@@ -623,11 +632,14 @@ def main():
     in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
     n_classes = 10
 
-    # model config
+    # dendriticmodel config
     n_dendrite_inputs = 16
-    n_dendrites = 32
-    n_neurons = 256
+    n_dendrites = 8
+    n_neurons = 32
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
+
+    # vanilla model config
+    n_vanilla_neurons = 64
 
     # data config
     dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
@@ -656,9 +668,9 @@ def main():
     v_criterion = CrossEntropy()
     v_model = Sequential(
         [
-            LinearLayer(in_dim, 64),
+            LinearLayer(in_dim, n_vanilla_neurons),
             LeakyReLU(),
-            LinearLayer(64, n_classes),
+            LinearLayer(n_vanilla_neurons, n_classes),
         ]
     )
     v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
