@@ -1,0 +1,204 @@
+try:
+    import cupy as cp
+
+    # Test if CuPy can actually access CUDA and random number generator
+    cp.cuda.Device(0).compute_capability
+    cp.random.seed(1)  # Test if random number generator works
+    print("Using CuPy (GPU acceleration)")
+except (ImportError, Exception) as e:
+    import numpy as cp
+
+    print(f"CuPy not available or CUDA error ({type(e).__name__}), using NumPy (CPU)")
+
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+
+
+def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
+    n_samples = len(X)
+    # shuffle data
+    if shuffle:
+        indices = cp.arange(n_samples)
+        cp.random.shuffle(indices)
+        X = X[indices]
+        y = y[indices]
+
+    for i in range(0, n_samples, batch_size):
+        if drop_last and i + batch_size > n_samples:
+            break
+        X_batch = X[i : i + batch_size]
+        y_batch = y[i : i + batch_size]
+        yield X_batch, y_batch
+
+
+def train(
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    model,
+    criterion,
+    optimiser,
+    n_epochs=2,
+    batch_size=128,
+):
+    train_losses = []
+    accuracy = []
+    test_losses = []
+    test_accuracy = []
+    n_samples = len(X_train)
+    num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
+    total_batches = n_epochs * num_batches_per_epoch
+
+    with tqdm(total=total_batches, desc="Training ") as pbar:
+        for epoch in range(n_epochs):
+            train_loss = 0.0
+            correct_pred = 0.0
+            for batch_idx, (X, target) in enumerate(
+                create_batches(X_train, y_train, batch_size, shuffle=True)
+            ):
+                # forward pass
+                pred = model(X)
+                batch_loss = criterion(pred, target)
+                train_loss += batch_loss
+                # if most likely prediction equals target add to correct predictions
+                batch_correct = cp.sum(
+                    cp.argmax(pred, axis=1) == cp.argmax(target, axis=1)
+                )
+                correct_pred += batch_correct
+
+                # backward pass
+                optimiser.zero_grad()
+                grad = criterion.backward()
+                model.backward(grad)
+                optimiser.step()
+
+                # Update progress bar
+                pbar.set_postfix(
+                    {
+                        "Epoch": f"{epoch + 1}/{n_epochs}",
+                        "Batch": f"{batch_idx + 1}/{num_batches_per_epoch}",
+                        "Loss": f"{float(batch_loss):.4f}",
+                    }
+                )
+                pbar.update(1)
+            # evaluate on test set
+            epoch_test_loss, epoch_test_accuracy = evaluate(
+                X_test, y_test, model, criterion
+            )
+            normalised_train_loss = train_loss / num_batches_per_epoch
+            train_losses.append(
+                float(normalised_train_loss)
+            )  # Convert to float for plotting
+            epoch_accuracy = correct_pred / n_samples
+            accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
+            test_losses.append(float(epoch_test_loss))
+            test_accuracy.append(float(epoch_test_accuracy))
+    return train_losses, accuracy, test_losses, test_accuracy
+
+
+def evaluate(
+    X_test,
+    y_test,
+    model,
+    criterion,
+    batch_size=256,
+):
+    n_samples = len(X_test)
+    test_loss = 0.0
+    correct_pred = 0.0
+    num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
+    for X, target in create_batches(
+        X_test, y_test, batch_size, shuffle=False, drop_last=False
+    ):
+        # forward pass
+        pred = model(X)
+        batch_loss = criterion(pred, target)
+        test_loss += batch_loss
+        # if most likely prediction eqauls target add to correct predictions
+        batch_correct = cp.sum(cp.argmax(pred, axis=1) == cp.argmax(target, axis=1))
+        correct_pred += batch_correct
+    normalised_test_loss = test_loss / num_batches_per_epoch
+    accuracy = correct_pred / n_samples
+    return float(normalised_test_loss), float(accuracy)
+
+
+def compare_models(
+    model_1,
+    model_2,
+    optimiser_1,
+    optimiser_2,
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    criterion,
+    n_epochs=10,
+    batch_size=256,
+    model_name_1="Dendritic",
+    model_name_2="Vanilla",
+):
+    print(f"Training {model_name_1} model...")
+    train_losses_1, train_accuracy_1, test_losses_1, test_accuracy_1 = train(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        model_1,
+        criterion,
+        optimiser_1,
+        n_epochs,
+        batch_size,
+    )
+
+    print(f"Training {model_name_2} model...")
+    train_losses_2, train_accuracy_2, test_losses_2, test_accuracy_2 = train(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        model_2,
+        criterion,
+        optimiser_2,
+        n_epochs,
+        batch_size,
+    )
+
+    # plot accuracy of vanilla model vs dendritic model
+    plt.plot(
+        train_accuracy_1, label=f"{model_name_1} Train", color="green", linestyle="--"
+    )
+    plt.plot(
+        train_accuracy_2, label=f"{model_name_2} Train", color="blue", linestyle="--"
+    )
+    plt.plot(test_accuracy_1, label=f"{model_name_1} Test", color="green")
+    plt.plot(test_accuracy_2, label=f"{model_name_2} Test", color="blue")
+    plt.title("Accuracy over epochs")
+    plt.legend()
+    plt.show()
+
+    # plot both models in comparison
+    plt.plot(
+        train_losses_1, label=f"{model_name_1} Train", color="green", linestyle="--"
+    )
+    plt.plot(
+        train_losses_2, label=f"{model_name_2} Train", color="blue", linestyle="--"
+    )
+    plt.plot(test_losses_1, label=f"{model_name_1} Test", color="green")
+    plt.plot(test_losses_2, label=f"{model_name_2} Test", color="blue")
+    plt.title("Loss over epochs")
+    plt.legend()
+    plt.show()
+
+    print(
+        f"train loss {model_name_1} model {round(train_losses_1[-1], 4)} vs {model_name_2} {round(train_losses_2[-1], 4)}"
+    )
+    print(
+        f"test loss {model_name_1} model {round(test_losses_1[-1], 4)} vs {model_name_2} {round(test_losses_2[-1], 4)}"
+    )
+    print(
+        f"train accuracy {model_name_1} model {round(train_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(train_accuracy_2[-1] * 100, 1)}%"
+    )
+    print(
+        f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(test_accuracy_2[-1] * 100, 1)}%"
+    )
