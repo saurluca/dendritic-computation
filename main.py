@@ -699,19 +699,19 @@ def main():
     )
 
     # plot accuracy of vanilla model vs dendritic model
-    plt.plot(v_train_accuracy, label="Vanilla", color="lightblue")
-    plt.plot(train_accuracy, label="Dendritic", color="orange")
-    plt.plot(v_test_accuracy, label="Vanilla Test", color="darkblue")
-    plt.plot(test_accuracy, label="Dendritic Test", color="darkorange")
+    plt.plot(v_train_accuracy, label="Vanilla Train", color="blue", linestyle="--")
+    plt.plot(train_accuracy, label="Dendritic Train", color="green", linestyle="--")
+    plt.plot(v_test_accuracy, label="Vanilla Test", color="blue")
+    plt.plot(test_accuracy, label="Dendritic Test", color="green")
     plt.title("Accuracy over epochs")
     plt.legend()
     plt.show()
 
     # plot both models in comparison
-    plt.plot(v_train_losses, label="Vanilla", color="lightblue")
-    plt.plot(train_losses, label="Dendritic", color="orange")
-    plt.plot(v_test_losses, label="Vanilla Test", color="darkblue")
-    plt.plot(test_losses, label="Dendritic Test", color="darkorange")
+    plt.plot(v_train_losses, label="Vanilla Train", color="blue", linestyle="--")
+    plt.plot(train_losses, label="Dendritic Train", color="green", linestyle="--")
+    plt.plot(v_test_losses, label="Vanilla Test", color="blue")
+    plt.plot(test_losses, label="Dendritic Test", color="green")
     plt.title("Loss over epochs")
     plt.legend()
     plt.show()
