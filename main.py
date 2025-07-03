@@ -103,7 +103,7 @@ class ELU:
 
     def __call__(self, x):
         return self.forward(x)
-    
+
 
 class SGD:
     def __init__(self, params, criterion, lr=0.01, momentum=0.9):
@@ -160,7 +160,16 @@ class SGD:
 
 
 class Adam:
-    def __init__(self, params, criterion, lr=0.01, beta1=0.9, beta2=0.999, eps=1e-8, weight_decay=0.0):
+    def __init__(
+        self,
+        params,
+        criterion,
+        lr=0.01,
+        beta1=0.9,
+        beta2=0.999,
+        eps=1e-8,
+        weight_decay=0.0,
+    ):
         self.params = params
         self.criterion = criterion
         self.lr = lr
@@ -169,7 +178,7 @@ class Adam:
         self.eps = eps
         self.t = 0  # Global time step, increments once per batch
         self.weight_decay = weight_decay
-        
+
         # Initialize moment estimates based on layer type
         self.m = []
         self.v = []
@@ -238,7 +247,7 @@ class Adam:
                 v_hat = self.v[i][j] / (1 - self.beta2**self.t)
 
                 # Update parameters
-                param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps) 
+                param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps)
                 param -= self.lr * self.weight_decay * param
 
     def __call__(self):
@@ -308,26 +317,41 @@ class DendriticLayer:
     """A sparse dendritic layer, consiting of dendrites and somas"""
 
     def __init__(
-        self, in_dim, n_neurons, strategy="random", n_dendrite_inputs=16, n_dendrites=4,
-        synaptic_resampling=True, percentage_resample=0.005, prob_of_resampling=0.05, resampling_criterion="gradient", n_steps_to_prune=100
+        self,
+        in_dim,
+        n_neurons,
+        strategy="random",
+        n_dendrite_inputs=16,
+        n_dendrites=4,
+        synaptic_resampling=True,
+        percentage_resample=0.005,
+        prob_of_resampling=0.05,
+        resampling_criterion="gradient",
+        n_steps_to_prune=100,
     ):
-        assert strategy in ("random", "local-receptive-fields", "fully-connected"), "Invalid strategy"
-        assert resampling_criterion in ("gradient", "magnitude"), "Invalid resampling_criterion"
-        assert not synaptic_resampling or strategy == "random", "synaptic_resampling is only supported for random strategy"
+        assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
+            "Invalid strategy"
+        )
+        assert resampling_criterion in ("gradient", "magnitude"), (
+            "Invalid resampling_criterion"
+        )
+        assert not synaptic_resampling or strategy == "random", (
+            "synaptic_resampling is only supported for random strategy"
+        )
 
         n_soma_connections = n_dendrites * n_neurons
-        
-        # dynamicly resample 
+
+        # dynamicly resample
         self.synaptic_resampling = synaptic_resampling
         self.percentage_resample = percentage_resample
-        self.resampling_criterion = resampling_criterion # gradient, magnitude
+        self.resampling_criterion = resampling_criterion  # gradient, magnitude
         self.prob_of_resampling = prob_of_resampling
         self.n_steps_to_prune = n_steps_to_prune
-        
+
         # to keep track of resampling
         self.num_mask_updates = 1
         self.update_steps = 0
-        
+
         self.in_dim = in_dim
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
@@ -441,26 +465,25 @@ class DendriticLayer:
         self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
         self.dendrite_db = soma_grad.sum(axis=0)
         dendrite_grad = soma_grad @ self.dendrite_W
-        
+
         if not (self.synaptic_resampling):
             return dendrite_grad
 
         # if not cp.random.random() < self.prob_of_resampling / (self.num_mask_updates * 2):
         #     return dendrite_grad
-        
+
         if self.update_steps < self.n_steps_to_prune:
             self.update_steps += 1
             return dendrite_grad
-
 
         # Calculate total number of connections to remove across entire network
         total_active_connections = int(cp.sum(self.dendrite_mask))
         pruning_percentage = self.percentage_resample * (1 / self.num_mask_updates)
         n_connections_to_remove = int(total_active_connections * pruning_percentage)
-        
+
         if n_connections_to_remove == 0:
             return dendrite_grad
-            
+
         # Find and remove top connections based on gradient or magnitude
         if self.resampling_criterion == "gradient":
             active_gradients = cp.abs(self.dendrite_dW) * self.dendrite_mask
@@ -471,36 +494,40 @@ class DendriticLayer:
             metric = cp.abs(self.dendrite_W).flatten()
             # remove the smallest magnitude connections
             flat_indices = cp.argsort(metric)[:n_connections_to_remove]
- 
-        dendrite_indices, input_indices = cp.unravel_index(flat_indices, self.dendrite_dW.shape)
+
+        dendrite_indices, input_indices = cp.unravel_index(
+            flat_indices, self.dendrite_dW.shape
+        )
         self.dendrite_mask[dendrite_indices, input_indices] = 0
-        
+
         # Count connections lost per dendrite and resample
         unique_dendrites, counts = cp.unique(dendrite_indices, return_counts=True)
         if len(counts) == 0:
             return dendrite_grad
-            
+
         # Pre-generate random candidates for resampling
         n_inputs = self.dendrite_x.shape[1]
         max_resample = int(cp.max(counts))
-        random_pool = cp.random.permutation(n_inputs)[:min(n_inputs, max_resample * 4)]
+        random_pool = cp.random.permutation(n_inputs)[: min(n_inputs, max_resample * 4)]
         print(f"updating mask with percentage {pruning_percentage}")
         # Resample connections for each affected dendrite
         for dendrite_idx, n_to_resample in zip(unique_dendrites, counts):
-            available_mask = (self.dendrite_mask[dendrite_idx] == 0) 
+            available_mask = self.dendrite_mask[dendrite_idx] == 0
             # print(f"available_mask: {cp.sum(available_mask)}")
             available_candidates = random_pool[available_mask[random_pool]]
-            
+
             # if not enough candidates, skip
             if len(available_candidates) < n_to_resample:
                 continue
-            
+
             new_inputs = available_candidates[:n_to_resample]
             self.dendrite_mask[dendrite_idx, new_inputs] = 1
             # Reinitialize weights for newly added connections using He initialization
-            self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(len(new_inputs)) * cp.sqrt(2.0 / self.in_dim)
+            self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(
+                len(new_inputs)
+            ) * cp.sqrt(2.0 / self.in_dim)
             self.num_mask_updates += 1
-        
+
         self.update_steps = 0
         return dendrite_grad
 
@@ -635,18 +662,22 @@ def train(
     n_samples = len(X_train)
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
     total_batches = n_epochs * num_batches_per_epoch
-    
+
     with tqdm(total=total_batches, desc="Training ") as pbar:
         for epoch in range(n_epochs):
             train_loss = 0.0
             correct_pred = 0.0
-            for batch_idx, (X, target) in enumerate(create_batches(X_train, y_train, batch_size, shuffle=True)):
+            for batch_idx, (X, target) in enumerate(
+                create_batches(X_train, y_train, batch_size, shuffle=True)
+            ):
                 # forward pass
                 pred = model(X)
                 batch_loss = criterion(pred, target)
                 train_loss += batch_loss
                 # if most likely prediction equals target add to correct predictions
-                batch_correct = cp.sum(cp.argmax(pred, axis=1) == cp.argmax(target, axis=1))
+                batch_correct = cp.sum(
+                    cp.argmax(pred, axis=1) == cp.argmax(target, axis=1)
+                )
                 correct_pred += batch_correct
 
                 # backward pass
@@ -656,14 +687,18 @@ def train(
                 optimiser.step()
 
                 # Update progress bar
-                pbar.set_postfix({
-                    'Epoch': f'{epoch+1}/{n_epochs}',
-                    'Batch': f'{batch_idx+1}/{num_batches_per_epoch}',
-                    'Loss': f'{float(batch_loss):.4f}'
-                })
+                pbar.set_postfix(
+                    {
+                        "Epoch": f"{epoch + 1}/{n_epochs}",
+                        "Batch": f"{batch_idx + 1}/{num_batches_per_epoch}",
+                        "Loss": f"{float(batch_loss):.4f}",
+                    }
+                )
                 pbar.update(1)
             # evaluate on test set
-            epoch_test_loss, epoch_test_accuracy = evaluate(X_test, y_test, model, criterion)
+            epoch_test_loss, epoch_test_accuracy = evaluate(
+                X_test, y_test, model, criterion
+            )
             normalised_train_loss = train_loss / num_batches_per_epoch
             train_losses.append(
                 float(normalised_train_loss)
@@ -686,7 +721,9 @@ def evaluate(
     test_loss = 0.0
     correct_pred = 0.0
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
-    for X, target in create_batches(X_test, y_test, batch_size, shuffle=False, drop_last=False):
+    for X, target in create_batches(
+        X_test, y_test, batch_size, shuffle=False, drop_last=False
+    ):
         # forward pass
         pred = model(X)
         batch_loss = criterion(pred, target)
@@ -720,7 +757,7 @@ def main():
     # vanilla model config
     n_vanilla_neurons_1 = 12
     n_vanilla_neurons_2 = 12
-    
+
     # data config
     dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
     subset_size = None
@@ -742,7 +779,7 @@ def main():
                 percentage_resample=0.5,
                 # prob_of_resampling=0.5,
                 n_steps_to_prune=200,
-                resampling_criterion="magnitude"
+                resampling_criterion="magnitude",
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -768,7 +805,7 @@ def main():
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
-                synaptic_resampling=False
+                synaptic_resampling=False,
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -783,12 +820,28 @@ def main():
 
     print("Training dendritic model...")
     train_losses, train_accuracy, test_losses, test_accuracy = train(
-        X_train, y_train, X_test, y_test, model, criterion, optimiser, n_epochs, batch_size
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        model,
+        criterion,
+        optimiser,
+        n_epochs,
+        batch_size,
     )
 
     print("Training vanilla model...")
     v_train_losses, v_train_accuracy, v_test_losses, v_test_accuracy = train(
-        X_train, y_train, X_test, y_test, v_model, v_criterion, v_optimiser, n_epochs, batch_size
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        v_model,
+        v_criterion,
+        v_optimiser,
+        n_epochs,
+        batch_size,
     )
 
     # plot accuracy of vanilla model vs dendritic model
@@ -808,7 +861,6 @@ def main():
     plt.title("Loss over epochs")
     plt.legend()
     plt.show()
-    
 
     print(
         f"train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}"
