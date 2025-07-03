@@ -546,6 +546,8 @@ def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
 def train(
     X_train,
     y_train,
+    X_test,
+    y_test,
     model,
     criterion,
     optimiser,
@@ -554,6 +556,8 @@ def train(
 ):
     train_losses = []
     accuracy = []
+    test_losses = []
+    test_accuracy = []
     n_samples = len(X_train)
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
     total_batches = n_epochs * num_batches_per_epoch
@@ -584,13 +588,17 @@ def train(
                     'Loss': f'{float(batch_loss):.4f}'
                 })
                 pbar.update(1)
+            # evaluate on test set
+            epoch_test_loss, epoch_test_accuracy = evaluate(X_test, y_test, model, criterion)
             normalised_train_loss = train_loss / num_batches_per_epoch
             train_losses.append(
                 float(normalised_train_loss)
             )  # Convert to float for plotting
             epoch_accuracy = correct_pred / n_samples
             accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
-    return train_losses, accuracy
+            test_losses.append(float(epoch_test_loss))
+            test_accuracy.append(float(epoch_test_accuracy))
+    return train_losses, accuracy, test_losses, test_accuracy
 
 
 def evaluate(
@@ -604,10 +612,7 @@ def evaluate(
     test_loss = 0.0
     correct_pred = 0.0
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
-    for X, target in tqdm(
-        create_batches(X_test, y_test, batch_size, shuffle=False, drop_last=False),
-        desc="Testing ",
-    ):
+    for X, target in create_batches(X_test, y_test, batch_size, shuffle=False, drop_last=False):
         # forward pass
         pred = model(X)
         batch_loss = criterion(pred, target)
@@ -617,7 +622,7 @@ def evaluate(
         correct_pred += batch_correct
     normalised_test_loss = test_loss / num_batches_per_epoch
     accuracy = correct_pred / n_samples
-    return float(normalised_test_loss), float(accuracy)  # Convert to float for printing
+    return float(normalised_test_loss), float(accuracy)
 
 
 def main():
@@ -684,42 +689,45 @@ def main():
     # raise Exception("Stop here")
 
     print("Training dendritic model...")
-    train_losses, train_accuracy = train(
-        X_train, y_train, model, criterion, optimiser, n_epochs, batch_size
+    train_losses, train_accuracy, test_losses, test_accuracy = train(
+        X_train, y_train, X_test, y_test, model, criterion, optimiser, n_epochs, batch_size
     )
-    test_loss, test_accuracy = evaluate(X_test, y_test, model, criterion)
 
     print("Training vanilla model...")
-    v_train_losses, v_train_accuracy = train(
-        X_train, y_train, v_model, v_criterion, v_optimiser, n_epochs, batch_size
+    v_train_losses, v_train_accuracy, v_test_losses, v_test_accuracy = train(
+        X_train, y_train, X_test, y_test, v_model, v_criterion, v_optimiser, n_epochs, batch_size
     )
-    v_test_loss, v_test_accuracy = evaluate(X_test, y_test, v_model, v_criterion)
 
     # plot accuracy of vanilla model vs dendritic model
-    plt.plot(v_train_accuracy, label="Vanilla")
-    plt.plot(train_accuracy, label="Dendritic")
+    plt.plot(v_train_accuracy, label="Vanilla", color="lightblue")
+    plt.plot(train_accuracy, label="Dendritic", color="orange")
+    plt.plot(v_test_accuracy, label="Vanilla Test", color="darkblue")
+    plt.plot(test_accuracy, label="Dendritic Test", color="darkorange")
     plt.title("Accuracy over epochs")
     plt.legend()
     plt.show()
 
     # plot both models in comparison
-    plt.plot(v_train_losses, label="Vanilla")
-    plt.plot(train_losses, label="Dendritic")
+    plt.plot(v_train_losses, label="Vanilla", color="lightblue")
+    plt.plot(train_losses, label="Dendritic", color="orange")
+    plt.plot(v_test_losses, label="Vanilla Test", color="darkblue")
+    plt.plot(test_losses, label="Dendritic Test", color="darkorange")
     plt.title("Loss over epochs")
     plt.legend()
     plt.show()
+    
 
     print(
         f"train loss dendritic model {round(train_losses[-1], 4)} vs vanilla {round(v_train_losses[-1], 4)}"
     )
     print(
-        f"test loss dendritic model {round(test_loss, 4)} vs vanilla {round(v_test_loss, 4)}"
+        f"test loss dendritic model {round(test_losses[-1], 4)} vs vanilla {round(v_test_losses[-1], 4)}"
     )
     print(
         f"train accuracy dendritic model {round(train_accuracy[-1] * 100, 1)}% vs vanilla {round(v_train_accuracy[-1] * 100, 1)}%"
     )
     print(
-        f"test accuracy dendritic model {round(test_accuracy * 100, 1)}% vs vanilla {round(v_test_accuracy * 100, 1)}%"
+        f"test accuracy dendritic model {round(test_accuracy[-1] * 100, 1)}% vs vanilla {round(v_test_accuracy[-1] * 100, 1)}%"
     )
 
 
