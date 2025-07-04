@@ -91,3 +91,71 @@ def load_mnist_data(
     print(f"Test data shape: {X_test.shape}, {y_test.shape}")
 
     return X_train, y_train, X_test, y_test
+
+
+def load_cifar10_data(
+    normalize=True, flatten=True, one_hot=True, subset_size=None
+):
+    """
+    Download and load the CIFAR-10 dataset.
+    Args:
+        normalize (bool): If True, normalize pixel values to [0, 1]
+        flatten (bool): If True, keep images as 3072-dimensional vectors.
+                        If False, reshape to (batch, 3, 32, 32).
+        one_hot (bool): If True, convert labels to one-hot encoding
+        subset_size (int): If specified, return only a subset of the data
+    Returns:
+        tuple: (X_train, y_train, X_test, y_test)
+    """
+    dataset_name = "CIFAR-10"
+    print(f"Loading {dataset_name} dataset...")
+
+    # Download dataset
+    data = fetch_openml(
+        dataset_name, version=1, as_frame=False, parser="auto", cache=True
+    )
+    X, y = data.data, data.target.astype(int)
+
+    # Split into train and test (50k train, 10k test)
+    X_train, X_test = X[:50000], X[50000:]
+    y_train, y_test = y[:50000], y[50000:]
+
+    # Normalize pixel values and convert to GPU arrays
+    if normalize:
+        X_train = cp.array(X_train.astype(np.float32) / 255.0)
+        X_test = cp.array(X_test.astype(np.float32) / 255.0)
+    else:
+        X_train = cp.array(X_train)
+        X_test = cp.array(X_test)
+
+    # Reshape if not flattening (data is flat by default from fetch_openml)
+    if not flatten:
+        X_train = X_train.reshape(-1, 3, 32, 32)
+        X_test = X_test.reshape(-1, 3, 32, 32)
+
+    # Convert labels to one-hot encoding
+    if one_hot:
+
+        def to_one_hot(labels, n_classes=10):
+            one_hot_labels = cp.zeros((len(labels), n_classes))
+            one_hot_labels[cp.arange(len(labels)), labels] = 1
+            return one_hot_labels
+
+        y_train = to_one_hot(cp.array(y_train))
+        y_test = to_one_hot(cp.array(y_test))
+    else:
+        y_train = cp.array(y_train)
+        y_test = cp.array(y_test)
+
+    # Use subset if specified
+    if subset_size is not None:
+        X_train, y_train = X_train[:subset_size], y_train[:subset_size]
+        X_test, y_test = (
+            X_test[: subset_size // 5],
+            y_test[: subset_size // 5],
+        )  # Keep proportional test size
+
+    print(f"Training data shape: {X_train.shape}, {y_train.shape}")
+    print(f"Test data shape: {X_test.shape}, {y_test.shape}")
+
+    return X_train, y_train, X_test, y_test
