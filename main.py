@@ -61,7 +61,6 @@ class DendriticLayer:
         n_dendrites=4,
         synaptic_resampling=True,
         percentage_resample=0.005,
-        prob_of_resampling=0.05,
         scaling_resampling_percentage=False,
         resample_with_permutation=False,
         steps_to_resample=100,
@@ -79,7 +78,6 @@ class DendriticLayer:
         # dynamicly resample
         self.synaptic_resampling = synaptic_resampling
         self.percentage_resample = percentage_resample
-        self.prob_of_resampling = prob_of_resampling
         self.steps_to_resample = steps_to_resample
         self.scaling_resampling_percentage = scaling_resampling_percentage
         self.resample_with_permutation = resample_with_permutation
@@ -213,11 +211,6 @@ class DendriticLayer:
                 self.update_steps = 0
                 self.resample_dendrites()
 
-            # resample based on probability
-            # if not cp.random.random() < self.prob_of_resampling / (self.num_mask_updates * 2):
-                # self.num_mask_updates += 1
-                # return dendrite_grad
-
         return dendrite_grad
 
     def resample_dendrites(self):
@@ -349,7 +342,7 @@ def main():
     # n_vanilla_neurons_2 = 12
 
     # data config
-    dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
+    dataset = "mnist"  # Choose between "mnist" or "fashion-mnist"
     subset_size = None
     
     print("\nRUN NAME: compare sampling methods\n")
@@ -369,7 +362,6 @@ def main():
                 strategy=strategy,
                 synaptic_resampling=True,
                 percentage_resample=0.8,
-                # prob_of_resampling=0.5,
                 steps_to_resample=400,
                 scaling_resampling_percentage=False,
                 resample_with_permutation=False,
@@ -401,12 +393,11 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
                 synaptic_resampling=False,
-                percentage_resample=0.8,
-                # prob_of_resampling=0.5,
-                steps_to_resample=400,
-                scaling_resampling_percentage=False,
-                resample_with_permutation=False,
-                probabilistic_resampling=False,
+                # percentage_resample=0.8,
+                # steps_to_resample=400,
+                # scaling_resampling_percentage=False,
+                # resample_with_permutation=False,
+                # probabilistic_resampling=False,
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),

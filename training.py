@@ -264,3 +264,5 @@ def compare_models(
     print(
         f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(test_accuracy_2[-1] * 100, 1)}%"
     )
+
+
