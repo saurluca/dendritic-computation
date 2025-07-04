@@ -321,14 +321,14 @@ class DendriticLayer:
 cp.random.seed(32)
 
 # data config
-dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
+dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
 
 # config
-n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
+n_epochs = 30  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.001  # 0.07 - SGD
 v_lr = 0.001  # 0.015 - SGD
-weight_decay = 0.0 #0.001
+weight_decay = 0.0001 #0.001
 batch_size = 128
 n_classes = 10
 
@@ -340,17 +340,13 @@ else:
     raise ValueError(f"Invalid dataset: {dataset}")
 
 # dendriticmodel config
-n_dendrite_inputs = 16
-n_dendrites = 16
-n_neurons = 128
+n_dendrite_inputs = 32
+n_dendrites = 8
+n_neurons = 10
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
-# vanilla model config
-# n_vanilla_neurons_1 = 12
-# n_vanilla_neurons_2 = 12
 
-
-print("\nRUN NAME: compare sampling methods\n")
+print("\nRUN NAME: dendrites, 32 / 8 dendrite inputs\n")
 
 if dataset in ["mnist", "fashion-mnist"]:
     X_train, y_train, X_test, y_test = load_mnist_data(
@@ -374,7 +370,7 @@ model = Sequential(
             strategy=strategy,
             synaptic_resampling=True,
             percentage_resample=0.8,
-            steps_to_resample=400,
+            steps_to_resample=300,
             scaling_resampling_percentage=False,
             probabilistic_resampling=False,
         ),
@@ -386,15 +382,7 @@ model = Sequential(
 optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay)
 
 v_criterion = CrossEntropy()
-# v_model = Sequential(
-#     [
-#         LinearLayer(in_dim, n_vanilla_neurons_1),
-#         LeakyReLU(),
-#         LinearLayer(n_vanilla_neurons_1, n_vanilla_neurons_2),
-#         LeakyReLU(),
-#         LinearLayer(n_vanilla_neurons_2, n_classes),
-#     ]
-# )
+
 v_model = Sequential(
     [
         DendriticLayer(
@@ -404,10 +392,6 @@ v_model = Sequential(
             n_dendrites=n_dendrites,
             strategy=strategy,
             synaptic_resampling=False,
-            # percentage_resample=0.8,
-            # steps_to_resample=400,
-            # scaling_resampling_percentage=False,
-            # probabilistic_resampling=False,
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
@@ -419,9 +403,6 @@ print(f"number of model_1 params: {model.num_params()}")
 print(f"number of model_2 params: {v_model.num_params()}")
 
 # raise Exception("Stop here")
-
-# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
-
 
 compare_models(
     model,
@@ -443,13 +424,10 @@ compare_models(
 # Visualize the weights of the first neuron in the dendritic model
 # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
 # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
 
 # %%
-# print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
-# plot_dendritic_weights(model, X_test[0], neuron_idx=1)
-# # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=1)
-# for i in range(10):
-#     plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
+for i in range(10):
+    plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
 
