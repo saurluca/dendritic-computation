@@ -14,6 +14,7 @@ except (ImportError, Exception) as e:
 from modules import Adam, CrossEntropy, LeakyReLU, Sequential
 from utils import load_mnist_data
 from training import compare_models
+import sys
 
 
 class LinearLayer:
@@ -213,7 +214,7 @@ class DendriticLayer:
             if self.update_steps >= self.steps_to_resample:
                 # reset step counter
                 self.update_steps = 0
-                self.resample_dendrites()
+                self.resample_dendrites_new()
 
             # resample based on probability
             # if not cp.random.random() < self.prob_of_resampling / (self.num_mask_updates * 2):
@@ -281,6 +282,77 @@ class DendriticLayer:
                 len(new_inputs)
             ) * cp.sqrt(2.0 / self.in_dim)
             
+            
+    def resample_dendrites_new(self):
+        connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
+        assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
+            f"Resampling failed: before resampling not all dendrites have {self.n_dendrite_inputs} connections."
+
+        
+        # Calculate resampling percentage, potentially scaled
+        if self.scaling_resampling_percentage:
+            resampling_percentage = self.percentage_resample ** (1 / self.num_mask_updates)
+        else:
+            resampling_percentage = self.percentage_resample
+
+        # Calculate total number of active connections and how many to remove
+        total_active_connections = int(cp.sum(self.dendrite_mask))
+        n_connections_to_remove = int(total_active_connections * resampling_percentage)
+
+        if n_connections_to_remove == 0:
+            return
+
+        # --- Part 1: Identify Connections to Remove ---
+        if self.resampling_criterion == "gradient":
+            metric = cp.abs(self.dendrite_dW) * self.dendrite_mask
+            flat_indices_to_remove = cp.argsort(metric.flatten())[-n_connections_to_remove:]
+        elif self.resampling_criterion == "magnitude":
+            metric = cp.abs(self.dendrite_W) * self.dendrite_mask
+            flat_indices_to_remove = cp.argsort(metric.flatten())[:n_connections_to_remove]
+        else:
+            raise ValueError(f"Unsupported resampling_criterion: {self.resampling_criterion}. Use 'gradient' or 'magnitude'.")
+
+        removed_dendrite_indices, removed_input_indices = cp.unravel_index(
+            flat_indices_to_remove, self.dendrite_mask.shape
+        )
+
+        # --- Part 2: One-shot Resampling Attempt ---
+        num_inputs_per_dendrite = self.dendrite_x.shape[1]
+        
+        newly_selected_input_indices = cp.random.randint(
+            0, num_inputs_per_dendrite, size=n_connections_to_remove, dtype=int
+        )
+
+        # --- Part 3: Conflict Detection ---
+        conflict_with_existing = self.dendrite_mask[removed_dendrite_indices, newly_selected_input_indices] == 1
+
+        num_dendrites = self.dendrite_mask.shape[0]
+        proposed_flat_indices = removed_dendrite_indices * num_inputs_per_dendrite + newly_selected_input_indices
+        
+        counts = cp.bincount(proposed_flat_indices.astype(int), minlength=num_dendrites * num_inputs_per_dendrite)
+        is_duplicate_flat = counts[proposed_flat_indices.astype(int)] > 1
+        
+        is_problematic = conflict_with_existing | is_duplicate_flat
+        is_successful = ~is_problematic
+
+        # --- Part 4: Apply Successful Swaps ---
+        dendrites_to_swap = removed_dendrite_indices[is_successful]
+        old_inputs_to_remove = removed_input_indices[is_successful]
+        new_inputs_to_add = newly_selected_input_indices[is_successful]
+
+        if dendrites_to_swap.size > 0:
+            self.dendrite_mask[dendrites_to_swap, old_inputs_to_remove] = 0
+            self.dendrite_mask[dendrites_to_swap, new_inputs_to_add] = 1
+
+            self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = (
+                cp.random.randn(dendrites_to_swap.shape[0]) * cp.sqrt(2.0 / self.in_dim)
+            )
+
+        # --- Part 5: Verification ---
+        connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
+        assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
+            f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
+
     def num_params(self):
         print(
             f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
@@ -307,7 +379,7 @@ def main():
     n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
     lr = 0.001  # 0.07 - SGD
     v_lr = 0.001  # 0.015 - SGD
-    weight_decay = 0.0001
+    weight_decay = 0.0 #0.001
     batch_size = 128
     in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
     n_classes = 10
