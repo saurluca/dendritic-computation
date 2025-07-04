@@ -54,6 +54,12 @@ def load_mnist_data(
 
     # Normalize pixel values and convert to GPU arrays
     if normalize:
+        # mean_rgb = X_train.mean(axis=(0, 1)) # Axis 0: samples, 1: height, 2: width
+        # std_rgb = X_train.std(axis=(0, 1))
+
+        # # Normalize both training and test sets using the calculated stats
+        # X_train = (X_train - mean_rgb) / std_rgb
+        # X_test = (X_test - mean_rgb) / std_rgb
         X_train = cp.array(X_train.astype(np.float32) / 255.0)
         X_test = cp.array(X_test.astype(np.float32) / 255.0)
     else:
@@ -107,7 +113,7 @@ def load_cifar10_data(
     Returns:
         tuple: (X_train, y_train, X_test, y_test)
     """
-    dataset_name = "CIFAR-10"
+    dataset_name = "CIFAR_10"
     print(f"Loading {dataset_name} dataset...")
 
     # Download dataset
@@ -116,10 +122,13 @@ def load_cifar10_data(
     )
     X, y = data.data, data.target.astype(int)
 
+    print("finished downloading data")
+
     # Split into train and test (50k train, 10k test)
     X_train, X_test = X[:50000], X[50000:]
     y_train, y_test = y[:50000], y[50000:]
-
+    
+   
     # Normalize pixel values and convert to GPU arrays
     if normalize:
         X_train = cp.array(X_train.astype(np.float32) / 255.0)

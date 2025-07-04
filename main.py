@@ -12,9 +12,8 @@ except (ImportError, Exception) as e:
     print(f"CuPy not available or CUDA error ({type(e).__name__}), using NumPy (CPU)")
 
 from modules import Adam, CrossEntropy, LeakyReLU, Sequential
-from utils import load_mnist_data
+from utils import load_mnist_data, load_cifar10_data
 from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image
-import sys
 
 
 class LinearLayer:
@@ -323,14 +322,24 @@ class DendriticLayer:
 # for repoducability
 cp.random.seed(32)
 
+# data config
+dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
+subset_size = None
+
 # config
 n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.001  # 0.07 - SGD
 v_lr = 0.001  # 0.015 - SGD
 weight_decay = 0.0 #0.001
 batch_size = 128
-in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
 n_classes = 10
+
+if dataset in ["mnist", "fashion-mnist"]:
+    in_dim = 28 * 28  # Image dimensions (28x28 MNIST, 32x32x3 CIFAR-10)
+elif dataset == "cifar10":
+    in_dim = 32 * 32 * 3
+else:
+    raise ValueError(f"Invalid dataset: {dataset}")
 
 # dendriticmodel config
 n_dendrite_inputs = 16
@@ -342,16 +351,20 @@ strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 # n_vanilla_neurons_1 = 12
 # n_vanilla_neurons_2 = 12
 
-# data config
-dataset = "mnist"  # Choose between "mnist" or "fashion-mnist"
-subset_size = None
 
 print("\nRUN NAME: compare sampling methods\n")
 
-X_train, y_train, X_test, y_test = load_mnist_data(
-    dataset=dataset, subset_size=subset_size
-)
+if dataset in ["mnist", "fashion-mnist"]:
+    X_train, y_train, X_test, y_test = load_mnist_data(
+        dataset=dataset, subset_size=subset_size
+    )
+elif dataset == "cifar10":
+    X_train, y_train, X_test, y_test = load_cifar10_data(
+        subset_size=subset_size
+    )
 
+
+print("Preparing model...")
 criterion = CrossEntropy()
 model = Sequential(
     [
@@ -411,10 +424,7 @@ print(f"number of model_2 params: {v_model.num_params()}")
 
 # raise Exception("Stop here")
 
-print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
-plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
-
+# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
 
 compare_models(
@@ -435,15 +445,15 @@ compare_models(
 )
 
 # Visualize the weights of the first neuron in the dendritic model
-print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
-plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+# print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
+# plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
 
 # %%
 # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
 # plot_dendritic_weights(model, X_test[0], neuron_idx=1)
-# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=1)
-for i in range(10):
-    plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
+# # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=1)
+# for i in range(10):
+#     plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
 
