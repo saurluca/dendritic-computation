@@ -65,29 +65,3 @@ Using cupy Compressed Sparse Row (CSR) matrix represnation, able to achieve arou
 
 For comparison: use 3 dendrite layers
 
-## Structural plasiticy
-
-Deteirme weights to prune:
-p ^(1/n) %, n being pruning round
-
-### General ideas
-
-- Incoprotate weight decay?
-- plot weight over picture of a dendrite
-- Why does He init work? should I also choose it
-- check if dendirte connctions remains coanst with sampling
-- TODO: reset update values for Adam for the new grads
-
-### Triggerig resampling
-
-- after n update steps
-- flat probability
-- increasing prob till it happens
-- decreasing prob over training epochs
-
-### Ideas for Sampling Strategies
-
-- use some kind of function (sigmoid?) to resamble distribution of weights that is ideal. make histogram of current and compare
-- prune the smallest p weights
-- probality function that assigns higher probaly to smaller weight to be resampled. Very unlikely for big weights, but not impossilbe
-- sample such that the weights convert against mean of He init
