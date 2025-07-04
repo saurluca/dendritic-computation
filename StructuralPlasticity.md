@@ -7,9 +7,11 @@ p ^(1/n) %, n being pruning round
 
 - [x] Incoprotate weight decay?
 - [x] plot weight over picture of a dendrite
-- Why does He init work? should I also choose it
-- check if dendirte connctions remains coanst with sampling
-- TODO: reset update values for Adam for the new grads
+- [x] Why does He init work? should I also choose it -> only good for weight init
+- [x] number check if dendirte connctions remains coanst with sampling -> yes
+- [x] reset update values for Adam for the new grads -> worsens results if reset
+- [ ] implement local recpeitve fields, then resample based on gaussian distribution
+- [ ] run param search over night.
 
 ### Triggerig resampling
 
@@ -18,7 +20,7 @@ p ^(1/n) %, n being pruning round
 
 ### Ideas for Sampling Strategies
 
-- use some kind of function (sigmoid?) to resamble distribution of weights that is ideal. make histogram of current and compare
+- [ ] use some kind of function (sigmoid?) to resamble distribution of weights that is ideal. make histogram of current and compare
 - [x] flat, prune the smallest p weights
 - [x] probality function that assigns higher probaly to smaller weight to be resampled. Very unlikely for big weights, but not impossilbe
 - [ ] sample such that the weights convert against mean of He init, or against normal?

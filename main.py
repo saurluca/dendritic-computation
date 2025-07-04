@@ -67,9 +67,9 @@ class DendriticLayer:
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
             "Invalid strategy"
         )
-        assert not synaptic_resampling or strategy == "random", (
-            "synaptic_resampling is only supported for random strategy"
-        )
+        # assert not synaptic_resampling or strategy == "random", (
+        #     "synaptic_resampling is only supported for random strategy"
+        # )
 
         n_soma_connections = n_dendrites * n_neurons
         self.n_neurons = n_neurons
@@ -144,34 +144,37 @@ class DendriticLayer:
 
     
     def create_local_receptive_field_mask(self):
-        assert self.n_dendrite_inputs == 16, (
-                    "local-receptive-fields strategy requires exactly 16 dendrite inputs for a 4x4 neighborhood"
-                )
+        image_size = int(cp.sqrt(self.in_dim))
 
-        image_size = int(cp.sqrt(self.in_dim))  # 28 for MNIST
+        # Choose a center pixel randomly from the image
+        center_row = cp.random.randint(0, image_size)
+        center_col = cp.random.randint(0, image_size)
 
-        # Choose center pixel such that 4x4 neighborhood fits within image bounds
-        # For 4x4 grid centered at (center_row, center_col), we need:
-        # - Grid spans from (center_row-1, center_col-1) to (center_row+2, center_col+2)
-        # - So center_row must be in [1, image_size-3] and center_col must be in [1, image_size-3]
-        # This ensures the full 4x4 grid is within [0, image_size-1] bounds
-        min_center = 1
-        max_center = image_size - 3  # 25 for 28x28 image
+        # The standard deviation is the square root of n_dendrite_inputs
+        std_dev = cp.power(self.n_dendrite_inputs, 0.2)
 
-        center_row = cp.random.randint(min_center, max_center + 1)
-        center_col = cp.random.randint(min_center, max_center + 1)
+        # Use a set to store unique indices, starting with the center pixel
+        center_idx = (center_row * image_size + center_col).item()
+        sampled_indices = {center_idx}
 
-        # Create 4x4 neighborhood around center pixel
-        # The 4x4 grid will be positioned such that center is at position (1,1) in the grid
-        input_indices = []
-        for dr in range(-1, 3):  # -1, 0, 1, 2 (4 rows)
-            for dc in range(-1, 3):  # -1, 0, 1, 2 (4 cols)
-                row = center_row + dr
-                col = center_col + dc
-                idx = row * image_size + col
-                input_indices.append(idx)
+        # Sample until we have n_dendrite_inputs
+        while len(sampled_indices) < self.n_dendrite_inputs:
+            # Sample one point from a Gaussian distribution around the center
+            row_offset = cp.random.normal(loc=0.0, scale=std_dev)
+            col_offset = cp.random.normal(loc=0.0, scale=std_dev)
 
-        input_idx = cp.array(input_indices)
+            sampled_row = cp.round(center_row + row_offset)
+            sampled_col = cp.round(center_col + col_offset)
+
+            # Clip coordinates to be within image bounds
+            sampled_row = cp.clip(sampled_row, 0, image_size - 1)
+            sampled_col = cp.clip(sampled_col, 0, image_size - 1)
+
+            # Convert to 1D index and add to set
+            idx = sampled_row.item() * image_size + sampled_col.item()
+            sampled_indices.add(idx)
+
+        input_idx = cp.array(list(sampled_indices), dtype=int)
         return input_idx
     
     def forward(self, x):
@@ -345,10 +348,10 @@ else:
 n_dendrite_inputs = 16
 n_dendrites = 8
 n_neurons = 16
-strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
+strategy = "local-receptive-fields"  # ["random", "local-receptive-fields", "fully-connected"]
 
 
-print("\nRUN NAME: dendrite 8 neuron 16\n")
+print("\nRUN NAME: synaptic resampling\n")
 
 if dataset in ["mnist", "fashion-mnist"]:
     X_train, y_train, X_test, y_test = load_mnist_data(
@@ -370,9 +373,9 @@ model = Sequential(
             n_dendrite_inputs=n_dendrite_inputs,
             n_dendrites=n_dendrites,
             strategy=strategy,
-            synaptic_resampling=True,
-            percentage_resample=0.7,
-            steps_to_resample=150,
+            synaptic_resampling=False,
+            percentage_resample=0.5,
+            steps_to_resample=500,
             scaling_resampling_percentage=False,
             probabilistic_resampling=False,
         ),
@@ -392,8 +395,12 @@ v_model = Sequential(
             n_neurons,
             n_dendrite_inputs=n_dendrite_inputs,
             n_dendrites=n_dendrites,
-            strategy=strategy,
+            strategy="random",
             synaptic_resampling=False,
+            percentage_resample=0.5,
+            steps_to_resample=500,
+            scaling_resampling_percentage=False,
+            probabilistic_resampling=False,
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
@@ -404,7 +411,12 @@ v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_d
 print(f"number of model_1 params: {model.num_params()}")
 print(f"number of model_2 params: {v_model.num_params()}")
 
-# raise Exception("Stop here")
+
+plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+
+raise Exception("Stop here")
+
 
 compare_models(
     model,
@@ -425,8 +437,8 @@ compare_models(
 
 # Visualize the weights of the first neuron in the dendritic model
 # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
-# plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
 
 # %%
