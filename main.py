@@ -61,7 +61,6 @@ class DendriticLayer:
         synaptic_resampling=True,
         percentage_resample=0.005,
         scaling_resampling_percentage=False,
-        resample_with_permutation=False,
         steps_to_resample=100,
         probabilistic_resampling=False,
     ):
@@ -80,7 +79,6 @@ class DendriticLayer:
         self.percentage_resample = percentage_resample
         self.steps_to_resample = steps_to_resample
         self.scaling_resampling_percentage = scaling_resampling_percentage
-        self.resample_with_permutation = resample_with_permutation
         self.probabilistic_resampling = probabilistic_resampling
 
         # to keep track of resampling
@@ -327,7 +325,7 @@ dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
 
 # config
-n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
+n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.001  # 0.07 - SGD
 v_lr = 0.001  # 0.015 - SGD
 weight_decay = 0.0 #0.001
@@ -344,7 +342,7 @@ else:
 # dendriticmodel config
 n_dendrite_inputs = 16
 n_dendrites = 16
-n_neurons = 10
+n_neurons = 128
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
 # vanilla model config
@@ -378,8 +376,7 @@ model = Sequential(
             percentage_resample=0.8,
             steps_to_resample=400,
             scaling_resampling_percentage=False,
-            resample_with_permutation=False,
-            probabilistic_resampling=True,
+            probabilistic_resampling=False,
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
@@ -410,7 +407,6 @@ v_model = Sequential(
             # percentage_resample=0.8,
             # steps_to_resample=400,
             # scaling_resampling_percentage=False,
-            # resample_with_permutation=False,
             # probabilistic_resampling=False,
         ),
         LeakyReLU(),
