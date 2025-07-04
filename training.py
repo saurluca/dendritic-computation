@@ -202,6 +202,18 @@ def compare_models(
     plt.legend()
     plt.show()
     
+    # print final weight stats of dendritc layer
+    weights_1 = cp.abs(model_1.params()[0].dendrite_W)
+    weights_2 = cp.abs(model_2.params()[0].dendrite_W)
+    
+    print(f"weights_1: {weights_1.shape}")
+    print(f"weights_2: {weights_2.shape}")
+    print(f"mean weights_1: {cp.mean(weights_1)}")
+    print(f"mean weights_2: {cp.mean(weights_2)}")
+    print(f"std weights_1: {cp.std(weights_1)}")
+    print(f"std weights_2: {cp.std(weights_2)}")
+    
+    
     # plot variance of grads
     if track_variance:
         # Convert CuPy arrays to NumPy arrays for plotting
