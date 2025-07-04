@@ -214,81 +214,17 @@ class DendriticLayer:
             if self.update_steps >= self.steps_to_resample:
                 # reset step counter
                 self.update_steps = 0
-                self.resample_dendrites_new()
-
+                self.resample_dendrites()
+                
             # resample based on probability
             # if not cp.random.random() < self.prob_of_resampling / (self.num_mask_updates * 2):
                 # self.num_mask_updates += 1
                 # return dendrite_grad
 
         return dendrite_grad
+        
 
     def resample_dendrites(self):
-        # Calculate total number of connections to remove across entire network
-        if self.scaling_resampling_percentage:
-            resampling_percentage = self.percentage_resample ** (1 / self.num_mask_updates)
-        else:
-            resampling_percentage = self.percentage_resample
-        total_active_connections = int(cp.sum(self.dendrite_mask))
-        n_connections_to_remove = int(total_active_connections * resampling_percentage)
-
-        if n_connections_to_remove == 0:
-            print("no connections to remove, skipping resampling")
-            return
-        
-        # print(f"resampling {resampling_percentage*100}% of dendritic inputs")
-
-        # Find and remove top connections based on gradient or magnitude
-        if self.resampling_criterion == "gradient":
-            active_gradients = cp.abs(self.dendrite_dW) * self.dendrite_mask
-            metric = active_gradients.flatten()
-            # remove the largest gradient connections
-            flat_indices = cp.argsort(metric)[-n_connections_to_remove:]
-        elif self.resampling_criterion == "magnitude":
-            metric = cp.abs(self.dendrite_W).flatten()
-            # remove the smallest magnitude connections
-            flat_indices = cp.argsort(metric)[:n_connections_to_remove]
-
-        dendrite_indices, input_indices = cp.unravel_index(
-            flat_indices, self.dendrite_dW.shape
-        )
-        self.dendrite_mask[dendrite_indices, input_indices] = 0
-
-        # Count connections lost per dendrite and resample
-        unique_dendrites, counts = cp.unique(dendrite_indices, return_counts=True)
-
-        # Pre-generate random candidates for resampling
-        # print(f"shape of dendrite_x: {self.dendrite_x.shape}")
-        n_inputs = self.dendrite_x.shape[1]
-        max_resample = int(cp.max(counts))
-        # print(f"max_resample: {max_resample}, shape of counts: {counts.shape}")
-        # TODO implement random draw with replacement, careful not in same dendrite, othwerise duplicates
-        random_pool = cp.random.permutation(n_inputs)[: min(n_inputs, max_resample * 4)]
-
-        for dendrite_idx, n_to_resample in zip(unique_dendrites, counts):
-            available_mask = self.dendrite_mask[dendrite_idx] == 0
-            available_candidates = random_pool[available_mask[random_pool]]
-
-            # if not enough candidates, skip
-            if len(available_candidates) < n_to_resample:
-                print("Not enoguh candidates avialbe, continuing")
-                continue
-
-            new_inputs = cp.random.permutation(available_candidates)[:n_to_resample]
-            # new_inputs_all.append(new_inputs)
-            self.dendrite_mask[dendrite_idx, new_inputs] = 1
-            # Reinitialize weights for newly added connections using He initialization
-            self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(
-                len(new_inputs)
-            ) * cp.sqrt(2.0 / self.in_dim)
-            
-            
-    def resample_dendrites_new(self):
-        # Initial assertion to ensure correctness before resampling
-        connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
-        assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
-            f"Resampling failed: before resampling not all dendrites have {self.n_dendrite_inputs} connections."
-
         # Calculate resampling percentage, potentially scaled
         if self.scaling_resampling_percentage:
             resampling_percentage = self.percentage_resample ** (1 / self.num_mask_updates)
@@ -299,8 +235,6 @@ class DendriticLayer:
         n_to_remove_per_dendrite = int(self.n_dendrite_inputs * resampling_percentage)
         if n_to_remove_per_dendrite == 0:
             return  # Nothing to remove
-        
-        # print(f"n_to_remove_per_dendrite: {n_to_remove_per_dendrite}")
 
         num_dendrites = self.dendrite_mask.shape[0]
 
@@ -353,23 +287,17 @@ class DendriticLayer:
             self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = (
                 cp.random.randn(dendrites_to_swap.shape[0]) * cp.sqrt(2.0 / self.in_dim)
             )
-
-        # print(f"shape of dendrite_mask: {self.dendrite_mask.shape}")
-        # print(f"num of dendrite successful swaps: {cp.count_nonzero(new_inputs_to_add)}")
-        # print(f"total num of dendrite connecitons: {cp.count_nonzero(self.dendrite_mask)}")
-        # print(f"num of dendrite failed swaps: {cp.count_nonzero(is_problematic)}")
         
-        # # --- Part 5: Verification ---
+        # --- Part 5: Verification ---
         connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
         assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
             f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
 
-        # raise Exception("Stop here")
 
     def num_params(self):
-        print(
-            f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
-        )
+        # print(
+        #     f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
+        # )
         return int(
             cp.sum(self.dendrite_mask)
             + self.dendrite_b.size
@@ -410,6 +338,9 @@ def main():
     # data config
     dataset = "fashion-mnist"  # Choose between "mnist" or "fashion-mnist"
     subset_size = None
+    
+        
+    print("\nRUN NAME: Fast Resampling 64\n")
 
     X_train, y_train, X_test, y_test = load_mnist_data(
         dataset=dataset, subset_size=subset_size
@@ -425,17 +356,18 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
                 synaptic_resampling=True,
-                percentage_resample=0.2,
+                percentage_resample=0.5,
                 # prob_of_resampling=0.5,
-                steps_to_resample=50,
+                steps_to_resample=500,
                 resampling_criterion="magnitude",
-                scaling_resampling_percentage=True,
+                scaling_resampling_percentage=False,
                 resample_with_permutation=False,
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
         ]
     )
+
     optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay)
 
     v_criterion = CrossEntropy()
