@@ -284,37 +284,45 @@ class DendriticLayer:
             
             
     def resample_dendrites_new(self):
+        # Initial assertion to ensure correctness before resampling
         connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
         assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
             f"Resampling failed: before resampling not all dendrites have {self.n_dendrite_inputs} connections."
 
-        
         # Calculate resampling percentage, potentially scaled
         if self.scaling_resampling_percentage:
             resampling_percentage = self.percentage_resample ** (1 / self.num_mask_updates)
         else:
             resampling_percentage = self.percentage_resample
 
-        # Calculate total number of active connections and how many to remove
-        total_active_connections = int(cp.sum(self.dendrite_mask))
-        n_connections_to_remove = int(total_active_connections * resampling_percentage)
+        # --- Part 1: Balanced Connection Removal from Each Dendrite ---
+        n_to_remove_per_dendrite = int(self.n_dendrite_inputs * resampling_percentage)
+        if n_to_remove_per_dendrite == 0:
+            return  # Nothing to remove
+        
+        # print(f"n_to_remove_per_dendrite: {n_to_remove_per_dendrite}")
 
-        if n_connections_to_remove == 0:
-            return
+        num_dendrites = self.dendrite_mask.shape[0]
 
-        # --- Part 1: Identify Connections to Remove ---
         if self.resampling_criterion == "gradient":
+            # For gradient, we remove the largest. Inactive connections are 0, so they won't be picked.
             metric = cp.abs(self.dendrite_dW) * self.dendrite_mask
-            flat_indices_to_remove = cp.argsort(metric.flatten())[-n_connections_to_remove:]
+            sorted_indices = cp.argsort(metric, axis=1)
+            cols_to_remove = sorted_indices[:, -n_to_remove_per_dendrite:]
         elif self.resampling_criterion == "magnitude":
-            metric = cp.abs(self.dendrite_W) * self.dendrite_mask
-            flat_indices_to_remove = cp.argsort(metric.flatten())[:n_connections_to_remove]
+            # For magnitude, we remove the smallest. Set inactive connections to infinity so they are not picked.
+            metric = cp.abs(self.dendrite_W)
+            metric[self.dendrite_mask == 0] = cp.inf
+            sorted_indices = cp.argsort(metric, axis=1)
+            cols_to_remove = sorted_indices[:, :n_to_remove_per_dendrite]
         else:
-            raise ValueError(f"Unsupported resampling_criterion: {self.resampling_criterion}. Use 'gradient' or 'magnitude'.")
+            raise ValueError(f"Unsupported resampling_criterion: {self.resampling_criterion}")
 
-        removed_dendrite_indices, removed_input_indices = cp.unravel_index(
-            flat_indices_to_remove, self.dendrite_mask.shape
-        )
+        # Create corresponding row indices and flatten for the swap logic
+        rows_to_remove = cp.arange(num_dendrites)[:, cp.newaxis]
+        removed_dendrite_indices = rows_to_remove.repeat(n_to_remove_per_dendrite, axis=1).flatten()
+        removed_input_indices = cols_to_remove.flatten()
+        n_connections_to_remove = removed_dendrite_indices.size
 
         # --- Part 2: One-shot Resampling Attempt ---
         num_inputs_per_dendrite = self.dendrite_x.shape[1]
@@ -325,10 +333,8 @@ class DendriticLayer:
 
         # --- Part 3: Conflict Detection ---
         conflict_with_existing = self.dendrite_mask[removed_dendrite_indices, newly_selected_input_indices] == 1
-
-        num_dendrites = self.dendrite_mask.shape[0]
-        proposed_flat_indices = removed_dendrite_indices * num_inputs_per_dendrite + newly_selected_input_indices
         
+        proposed_flat_indices = removed_dendrite_indices * num_inputs_per_dendrite + newly_selected_input_indices
         counts = cp.bincount(proposed_flat_indices.astype(int), minlength=num_dendrites * num_inputs_per_dendrite)
         is_duplicate_flat = counts[proposed_flat_indices.astype(int)] > 1
         
@@ -348,10 +354,17 @@ class DendriticLayer:
                 cp.random.randn(dendrites_to_swap.shape[0]) * cp.sqrt(2.0 / self.in_dim)
             )
 
-        # --- Part 5: Verification ---
+        # print(f"shape of dendrite_mask: {self.dendrite_mask.shape}")
+        # print(f"num of dendrite successful swaps: {cp.count_nonzero(new_inputs_to_add)}")
+        # print(f"total num of dendrite connecitons: {cp.count_nonzero(self.dendrite_mask)}")
+        # print(f"num of dendrite failed swaps: {cp.count_nonzero(is_problematic)}")
+        
+        # # --- Part 5: Verification ---
         connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
         assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
             f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
+
+        # raise Exception("Stop here")
 
     def num_params(self):
         print(
@@ -412,7 +425,7 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
                 synaptic_resampling=True,
-                percentage_resample=0.5,
+                percentage_resample=0.2,
                 # prob_of_resampling=0.5,
                 steps_to_resample=50,
                 resampling_criterion="magnitude",
