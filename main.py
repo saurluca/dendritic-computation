@@ -13,7 +13,7 @@ except (ImportError, Exception) as e:
 
 from modules import Adam, CrossEntropy, LeakyReLU, Sequential
 from utils import load_mnist_data
-from training import compare_models
+from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image
 import sys
 
 
@@ -74,7 +74,8 @@ class DendriticLayer:
         )
 
         n_soma_connections = n_dendrites * n_neurons
-
+        self.n_neurons = n_neurons
+        self.n_dendrites = n_dendrites
         # dynamicly resample
         self.synaptic_resampling = synaptic_resampling
         self.percentage_resample = percentage_resample
@@ -318,114 +319,131 @@ class DendriticLayer:
         return self.forward(x)
 
 
-def main():
-    # for repoducability
-    cp.random.seed(32)
 
-    # config
-    n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
-    lr = 0.001  # 0.07 - SGD
-    v_lr = 0.001  # 0.015 - SGD
-    weight_decay = 0.0 #0.001
-    batch_size = 128
-    in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
-    n_classes = 10
+# for repoducability
+cp.random.seed(32)
 
-    # dendriticmodel config
-    n_dendrite_inputs = 16
-    n_dendrites = 16
-    n_neurons = 10
-    strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
+# config
+n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
+lr = 0.001  # 0.07 - SGD
+v_lr = 0.001  # 0.015 - SGD
+weight_decay = 0.0 #0.001
+batch_size = 128
+in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
+n_classes = 10
 
-    # vanilla model config
-    # n_vanilla_neurons_1 = 12
-    # n_vanilla_neurons_2 = 12
+# dendriticmodel config
+n_dendrite_inputs = 16
+n_dendrites = 16
+n_neurons = 10
+strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
-    # data config
-    dataset = "mnist"  # Choose between "mnist" or "fashion-mnist"
-    subset_size = None
-    
-    print("\nRUN NAME: compare sampling methods\n")
+# vanilla model config
+# n_vanilla_neurons_1 = 12
+# n_vanilla_neurons_2 = 12
 
-    X_train, y_train, X_test, y_test = load_mnist_data(
-        dataset=dataset, subset_size=subset_size
-    )
+# data config
+dataset = "mnist"  # Choose between "mnist" or "fashion-mnist"
+subset_size = None
 
-    criterion = CrossEntropy()
-    model = Sequential(
-        [
-            DendriticLayer(
-                in_dim,
-                n_neurons,
-                n_dendrite_inputs=n_dendrite_inputs,
-                n_dendrites=n_dendrites,
-                strategy=strategy,
-                synaptic_resampling=True,
-                percentage_resample=0.8,
-                steps_to_resample=400,
-                scaling_resampling_percentage=False,
-                resample_with_permutation=False,
-                probabilistic_resampling=True,
-            ),
-            LeakyReLU(),
-            LinearLayer(n_neurons, n_classes),
-        ]
-    )
+print("\nRUN NAME: compare sampling methods\n")
 
-    optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay)
+X_train, y_train, X_test, y_test = load_mnist_data(
+    dataset=dataset, subset_size=subset_size
+)
 
-    v_criterion = CrossEntropy()
-    # v_model = Sequential(
-    #     [
-    #         LinearLayer(in_dim, n_vanilla_neurons_1),
-    #         LeakyReLU(),
-    #         LinearLayer(n_vanilla_neurons_1, n_vanilla_neurons_2),
-    #         LeakyReLU(),
-    #         LinearLayer(n_vanilla_neurons_2, n_classes),
-    #     ]
-    # )
-    v_model = Sequential(
-        [
-            DendriticLayer(
-                in_dim,
-                n_neurons,
-                n_dendrite_inputs=n_dendrite_inputs,
-                n_dendrites=n_dendrites,
-                strategy=strategy,
-                synaptic_resampling=False,
-                # percentage_resample=0.8,
-                # steps_to_resample=400,
-                # scaling_resampling_percentage=False,
-                # resample_with_permutation=False,
-                # probabilistic_resampling=False,
-            ),
-            LeakyReLU(),
-            LinearLayer(n_neurons, n_classes),
-        ]
-    )
-    v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
+criterion = CrossEntropy()
+model = Sequential(
+    [
+        DendriticLayer(
+            in_dim,
+            n_neurons,
+            n_dendrite_inputs=n_dendrite_inputs,
+            n_dendrites=n_dendrites,
+            strategy=strategy,
+            synaptic_resampling=True,
+            percentage_resample=0.8,
+            steps_to_resample=400,
+            scaling_resampling_percentage=False,
+            resample_with_permutation=False,
+            probabilistic_resampling=True,
+        ),
+        LeakyReLU(),
+        LinearLayer(n_neurons, n_classes),
+    ]
+)
 
-    print(f"number of model_1 params: {model.num_params()}")
-    print(f"number of model_2 params: {v_model.num_params()}")
+optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay)
 
-    # raise Exception("Stop here")
+v_criterion = CrossEntropy()
+# v_model = Sequential(
+#     [
+#         LinearLayer(in_dim, n_vanilla_neurons_1),
+#         LeakyReLU(),
+#         LinearLayer(n_vanilla_neurons_1, n_vanilla_neurons_2),
+#         LeakyReLU(),
+#         LinearLayer(n_vanilla_neurons_2, n_classes),
+#     ]
+# )
+v_model = Sequential(
+    [
+        DendriticLayer(
+            in_dim,
+            n_neurons,
+            n_dendrite_inputs=n_dendrite_inputs,
+            n_dendrites=n_dendrites,
+            strategy=strategy,
+            synaptic_resampling=False,
+            # percentage_resample=0.8,
+            # steps_to_resample=400,
+            # scaling_resampling_percentage=False,
+            # resample_with_permutation=False,
+            # probabilistic_resampling=False,
+        ),
+        LeakyReLU(),
+        LinearLayer(n_neurons, n_classes),
+    ]
+)
+v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
 
-    compare_models(
-        model,
-        v_model,
-        optimiser,
-        v_optimiser,
-        X_train,
-        y_train,
-        X_test,
-        y_test,
-        criterion,
-        n_epochs=n_epochs,
-        batch_size=batch_size,
-        model_name_1="Dendritic",
-        model_name_2="Vanilla",
-        track_variance=True,
-    )
+print(f"number of model_1 params: {model.num_params()}")
+print(f"number of model_2 params: {v_model.num_params()}")
+
+# raise Exception("Stop here")
+
+print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
+plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
 
-main()
+
+compare_models(
+    model,
+    v_model,
+    optimiser,
+    v_optimiser,
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    criterion,
+    n_epochs=n_epochs,
+    batch_size=batch_size,
+    model_name_1="Dendritic",
+    model_name_2="Vanilla",
+    track_variance=True,
+)
+
+# Visualize the weights of the first neuron in the dendritic model
+print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
+plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+
+
+# %%
+# print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
+# plot_dendritic_weights(model, X_test[0], neuron_idx=1)
+# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=1)
+for i in range(10):
+    plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
+

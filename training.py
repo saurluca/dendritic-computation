@@ -12,6 +12,7 @@ except (ImportError, Exception) as e:
 
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import math
 
 
 def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
@@ -264,5 +265,155 @@ def compare_models(
     print(
         f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(test_accuracy_2[-1] * 100, 1)}%"
     )
+
+
+def plot_dendritic_weights(model, input_image, neuron_idx=0, image_shape=(28, 28)):
+    """
+    Plots the weights of each dendrite of a specific neuron from a DendriticLayer
+    over a given input image.
+
+    Args:
+        model (Sequential): The trained model containing a DendriticLayer.
+        input_image (cp.ndarray): A single input image (flattened).
+        neuron_idx (int): The index of the neuron to visualize.
+        image_shape (tuple): The shape to reshape the image and weights into (e.g., (28, 28)).
+    """
+    import numpy as np
+    
+    def to_numpy(arr):
+        if hasattr(arr, 'get'):
+            return arr.get()
+        return np.asarray(arr)
+
+    # Find the DendriticLayer
+    dendritic_layer = None
+    for layer in model.layers:
+        if hasattr(layer, 'dendrite_W'):
+            dendritic_layer = layer
+            break
+
+    if dendritic_layer is None:
+        print("No DendriticLayer found in the model.")
+        return
+
+    # Check if neuron_idx is valid
+    if not (0 <= neuron_idx < dendritic_layer.n_neurons):
+        print(f"Invalid neuron_idx. Must be between 0 and {dendritic_layer.n_neurons - 1}.")
+        return
+
+    n_dendrites = dendritic_layer.n_dendrites
+    
+    # Get the weights and mask for the specified neuron's dendrites
+    start_idx = neuron_idx * n_dendrites
+    end_idx = start_idx + n_dendrites
+    
+    dendrite_weights = to_numpy(dendritic_layer.dendrite_W[start_idx:end_idx])
+    dendrite_mask = to_numpy(dendritic_layer.dendrite_mask[start_idx:end_idx])
+    
+    masked_weights = dendrite_weights * dendrite_mask
+    magnitudes = np.abs(masked_weights)
+    input_image_np = to_numpy(input_image)
+
+    # Determine grid size for subplots
+    n_cols = int(math.ceil(math.sqrt(n_dendrites)))
+    n_rows = int(math.ceil(n_dendrites / n_cols))
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * 2.5, n_rows * 2.5))
+    fig.suptitle(f"Dendritic Weight Magnitudes for Neuron {neuron_idx}", fontsize=16)
+    
+    axes = axes.flatten()
+
+    # Find global min/max for consistent color scaling of weights
+    vmax = magnitudes.max()
+    if vmax == 0:
+        vmax = 1.0
+    vmin = 0
+
+    for i in range(n_dendrites):
+        ax = axes[i]
+        
+        image_2d = input_image_np.reshape(image_shape)
+        magnitudes_2d = magnitudes[i].reshape(image_shape)
+        
+        ax.imshow(image_2d, cmap='gray', interpolation='nearest')
+        
+        magnitudes_masked = np.ma.masked_where(magnitudes_2d == 0, magnitudes_2d)
+        
+        im = ax.imshow(magnitudes_masked, cmap='viridis', alpha=0.6, vmin=vmin, vmax=vmax, interpolation='nearest')
+        
+        ax.set_title(f"Dendrite {i + 1}")
+        ax.axis('off')
+
+    # Hide unused subplots
+    for i in range(n_dendrites, len(axes)):
+        axes[i].axis('off')
+
+    fig.colorbar(im, ax=axes.tolist(), shrink=0.7, label="Weight Magnitude")
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
+
+def plot_dendritic_weights_single_image(model, input_image, neuron_idx=0, image_shape=(28, 28)):
+    """
+    Plots the aggregated magnitude of all dendritic weights of a single neuron on one image.
+    Color indicates the sum of magnitudes at each location.
+    """
+    import numpy as np
+
+    def to_numpy(arr):
+        if hasattr(arr, 'get'):
+            return arr.get()
+        return np.asarray(arr)
+
+    # Find the first DendriticLayer
+    dendritic_layer = None
+    for layer in model.layers:
+        if hasattr(layer, 'dendrite_W'):
+            dendritic_layer = layer
+            break
+
+    if dendritic_layer is None:
+        print("No DendriticLayer found in the model.")
+        return
+
+    if not (0 <= neuron_idx < dendritic_layer.n_neurons):
+        print(f"Invalid neuron_idx. Must be between 0 and {dendritic_layer.n_neurons - 1}.")
+        return
+
+    # Get the weights and mask for the specified neuron's dendrites
+    start_idx = neuron_idx * dendritic_layer.n_dendrites
+    end_idx = start_idx + dendritic_layer.n_dendrites
+
+    dendrite_weights = to_numpy(dendritic_layer.dendrite_W[start_idx:end_idx])
+    dendrite_mask = to_numpy(dendritic_layer.dendrite_mask[start_idx:end_idx])
+    
+    masked_weights = dendrite_weights * dendrite_mask
+    input_image_np = to_numpy(input_image)
+
+    # Calculate and sum magnitudes
+    magnitudes = np.abs(masked_weights)
+    summed_magnitudes = np.sum(magnitudes, axis=0)
+
+    # Reshape for plotting
+    summed_magnitudes_2d = summed_magnitudes.reshape(image_shape)
+    
+    # Plot background image
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(input_image_np.reshape(image_shape), cmap='gray', interpolation='nearest')
+
+    # Mask zeros for the overlay
+    heatmap_masked = np.ma.masked_where(summed_magnitudes_2d == 0, summed_magnitudes_2d)
+
+    # Plot heatmap of magnitudes
+    im = ax.imshow(heatmap_masked, cmap='viridis', alpha=0.6, interpolation='nearest')
+
+    # Add colorbar
+    fig.colorbar(im, ax=ax, label="Sum of Weight Magnitudes")
+    
+    ax.set_title(f'Aggregated Dendritic Weight Magnitudes for Neuron {neuron_idx}')
+    ax.axis('off')
+    plt.tight_layout()
+    plt.show()
 
 
