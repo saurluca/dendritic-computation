@@ -64,6 +64,7 @@ class DendriticLayer:
         steps_to_resample=100,
         probabilistic_resampling=False,
         local_receptive_field_std_dev_factor=0.5,
+        lrf_resampling_prob=0.0,
     ):
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
             "Invalid strategy"
@@ -71,7 +72,7 @@ class DendriticLayer:
         # assert not synaptic_resampling or strategy == "random", (
         #     "synaptic_resampling is only supported for random strategy"
         # )
-
+        self.strategy = strategy
         n_soma_connections = n_dendrites * n_neurons
         self.n_neurons = n_neurons
         self.n_dendrites = n_dendrites
@@ -82,7 +83,7 @@ class DendriticLayer:
         self.scaling_resampling_percentage = scaling_resampling_percentage
         self.probabilistic_resampling = probabilistic_resampling
         self.local_receptive_field_std_dev_factor = local_receptive_field_std_dev_factor
-
+        self.lrf_resampling_prob = lrf_resampling_prob
         # to keep track of resampling
         self.num_mask_updates = 1
         self.update_steps = 0
@@ -216,6 +217,55 @@ class DendriticLayer:
 
         return dendrite_grad
 
+    def _lrf_resample(self, dendrites_to_resample):
+        """Resample connections for specified dendrites using a local receptive field approach."""
+        image_size = int(cp.sqrt(self.in_dim))
+        n_to_resample = dendrites_to_resample.size
+
+        # --- 1. Find the center of each unique dendrite's receptive field ---
+        unique_dendrites, inverse_indices = cp.unique(dendrites_to_resample, return_inverse=True)
+        
+        # Get all connections for the unique dendrites that need resampling
+        dendrite_masks = self.dendrite_mask[unique_dendrites, :]
+        connected_indices = cp.where(dendrite_masks)
+        
+        # `connected_indices[0]` maps an entry to an index in `unique_dendrites`
+        # `connected_indices[1]` is the input feature index (1D)
+        unique_dendrite_map = connected_indices[0]
+        input_feature_indices = connected_indices[1]
+
+        # Convert 1D input indices to 2D coordinates to calculate centers
+        rows_2d = input_feature_indices // image_size
+        cols_2d = input_feature_indices % image_size
+        
+        # Calculate the mean row and column for each unique dendrite (vectorized groupby)
+        dendrite_counts = cp.bincount(unique_dendrite_map)
+        center_rows = cp.bincount(unique_dendrite_map, weights=rows_2d) / dendrite_counts
+        center_cols = cp.bincount(unique_dendrite_map, weights=cols_2d) / dendrite_counts
+
+        # --- 2. Map centers back to the original `dendrites_to_resample` list ---
+        # This gives us a center for each connection we need to create
+        resample_center_rows = center_rows[inverse_indices]
+        resample_center_cols = center_cols[inverse_indices]
+
+        # --- 3. Sample new connections from a Gaussian distribution around the centers ---
+        std_dev = cp.power(self.n_dendrite_inputs, self.local_receptive_field_std_dev_factor)
+        
+        row_offsets = cp.random.normal(loc=0.0, scale=std_dev, size=n_to_resample)
+        col_offsets = cp.random.normal(loc=0.0, scale=std_dev, size=n_to_resample)
+
+        new_rows = cp.round(resample_center_rows + row_offsets)
+        new_cols = cp.round(resample_center_cols + col_offsets)
+
+        # Clip coordinates to be within image bounds
+        new_rows = cp.clip(new_rows, 0, image_size - 1)
+        new_cols = cp.clip(new_cols, 0, image_size - 1)
+
+        # Convert 2D coordinates back to 1D indices
+        new_input_indices = new_rows * image_size + new_cols
+        
+        return new_input_indices.astype(int)
+
     def resample_dendrites(self):
         # --- Part 1: Connection Removal ---
         if self.probabilistic_resampling:
@@ -268,9 +318,16 @@ class DendriticLayer:
         # --- Part 2: One-shot Resampling Attempt ---
         num_inputs_per_dendrite = self.dendrite_x.shape[1]
         
-        newly_selected_input_indices = cp.random.randint(
-            0, num_inputs_per_dendrite, size=n_connections_to_remove, dtype=int
-        )
+        # Decide whether to use LRF or random resampling
+        use_lrf = (self.strategy == "local-receptive-fields" and 
+                   cp.random.random() < self.lrf_resampling_prob)
+
+        if use_lrf and n_connections_to_remove > 0:
+            newly_selected_input_indices = self._lrf_resample(removed_dendrite_indices)
+        else:
+            newly_selected_input_indices = cp.random.randint(
+                0, num_inputs_per_dendrite, size=n_connections_to_remove, dtype=int
+            )
 
         # --- Part 3: Conflict Detection ---
         conflict_with_existing = self.dendrite_mask[removed_dendrite_indices, newly_selected_input_indices] == 1
@@ -348,7 +405,7 @@ else:
 
 # dendriticmodel config
 n_dendrite_inputs = 16
-n_dendrites = 8
+n_dendrites = 16
 n_neurons = 16
 strategy = "local-receptive-fields"  # ["random", "local-receptive-fields", "fully-connected"]
 
@@ -376,11 +433,11 @@ model = Sequential(
             n_dendrites=n_dendrites,
             strategy=strategy,
             synaptic_resampling=False,
-            percentage_resample=0.5,
-            steps_to_resample=500,
+            percentage_resample=0.8,
+            steps_to_resample=200,
             scaling_resampling_percentage=False,
-            probabilistic_resampling=False,
-            local_receptive_field_std_dev_factor=0.5,
+            local_receptive_field_std_dev_factor=0.25,
+            lrf_resampling_prob=0.0,
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
@@ -400,10 +457,11 @@ v_model = Sequential(
             n_dendrites=n_dendrites,
             strategy="random",
             synaptic_resampling=False,
-            percentage_resample=0.5,
-            steps_to_resample=500,
+            percentage_resample=0.8,
+            steps_to_resample=200,
             scaling_resampling_percentage=False,
-            probabilistic_resampling=False,
+            local_receptive_field_std_dev_factor=0.5,
+            lrf_resampling_prob=0.0,
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),

@@ -39,3 +39,6 @@ train accuracy Dendritic model 97.4% vs Vanilla 93.5%
 test accuracy Dendritic model 96.4% vs Vanilla 93.0% 
 
 Current implemnation has same training time but better results.
+
+- lrf_resampling is worse then random resampling
+- current implementation of local recptive fields similar or worse to random init with and without sampling
