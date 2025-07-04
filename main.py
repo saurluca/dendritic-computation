@@ -225,7 +225,7 @@ class DendriticLayer:
     def resample_dendrites(self):
         # Calculate total number of connections to remove across entire network
         if self.scaling_resampling_percentage:
-            resampling_percentage = self.percentage_resample * (1 / self.num_mask_updates)
+            resampling_percentage = self.percentage_resample ** (1 / self.num_mask_updates)
         else:
             resampling_percentage = self.percentage_resample
         total_active_connections = int(cp.sum(self.dendrite_mask))
@@ -235,7 +235,7 @@ class DendriticLayer:
             print("no connections to remove, skipping resampling")
             return
         
-        print(f"resampling {resampling_percentage*100}% of dendritic inputs")
+        # print(f"resampling {resampling_percentage*100}% of dendritic inputs")
 
         # Find and remove top connections based on gradient or magnitude
         if self.resampling_criterion == "gradient":
@@ -257,13 +257,13 @@ class DendriticLayer:
         unique_dendrites, counts = cp.unique(dendrite_indices, return_counts=True)
 
         # Pre-generate random candidates for resampling
+        # print(f"shape of dendrite_x: {self.dendrite_x.shape}")
         n_inputs = self.dendrite_x.shape[1]
         max_resample = int(cp.max(counts))
-        print(f"max_resample: {max_resample}, shape of counts: {counts.shape}")
+        # print(f"max_resample: {max_resample}, shape of counts: {counts.shape}")
         # TODO implement random draw with replacement, careful not in same dendrite, othwerise duplicates
         random_pool = cp.random.permutation(n_inputs)[: min(n_inputs, max_resample * 4)]
-        
-        # Resample connections for each affected dendrite
+
         for dendrite_idx, n_to_resample in zip(unique_dendrites, counts):
             available_mask = self.dendrite_mask[dendrite_idx] == 0
             available_candidates = random_pool[available_mask[random_pool]]
@@ -273,14 +273,14 @@ class DendriticLayer:
                 print("Not enoguh candidates avialbe, continuing")
                 continue
 
-            new_inputs = available_candidates[:n_to_resample]
+            new_inputs = cp.random.permutation(available_candidates)[:n_to_resample]
+            # new_inputs_all.append(new_inputs)
             self.dendrite_mask[dendrite_idx, new_inputs] = 1
             # Reinitialize weights for newly added connections using He initialization
             self.dendrite_W[dendrite_idx, new_inputs] = cp.random.randn(
                 len(new_inputs)
             ) * cp.sqrt(2.0 / self.in_dim)
-
-
+            
     def num_params(self):
         print(
             f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
@@ -307,14 +307,15 @@ def main():
     n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
     lr = 0.001  # 0.07 - SGD
     v_lr = 0.001  # 0.015 - SGD
+    weight_decay = 0.0001
     batch_size = 128
     in_dim = 28 * 28  # Image dimensions (28x28 for both MNIST and Fashion-MNIST)
     n_classes = 10
 
     # dendriticmodel config
     n_dendrite_inputs = 16
-    n_dendrites = 8
-    n_neurons = 8
+    n_dendrites = 16
+    n_neurons = 10
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     # vanilla model config
@@ -339,18 +340,18 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
                 synaptic_resampling=True,
-                percentage_resample=0.25,
+                percentage_resample=0.5,
                 # prob_of_resampling=0.5,
-                steps_to_resample=1,
+                steps_to_resample=50,
                 resampling_criterion="magnitude",
-                scaling_resampling_percentage=False,
+                scaling_resampling_percentage=True,
                 resample_with_permutation=False,
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
         ]
     )
-    optimiser = Adam(model.params(), criterion, lr=lr)
+    optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay)
 
     v_criterion = CrossEntropy()
     # v_model = Sequential(
@@ -376,7 +377,7 @@ def main():
             LinearLayer(n_neurons, n_classes),
         ]
     )
-    v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr)
+    v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
 
     print(f"number of model_1 params: {model.num_params()}")
     print(f"number of model_2 params: {v_model.num_params()}")
