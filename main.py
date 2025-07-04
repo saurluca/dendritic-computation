@@ -63,6 +63,7 @@ class DendriticLayer:
         scaling_resampling_percentage=False,
         steps_to_resample=100,
         probabilistic_resampling=False,
+        local_receptive_field_std_dev_factor=0.5,
     ):
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
             "Invalid strategy"
@@ -80,6 +81,7 @@ class DendriticLayer:
         self.steps_to_resample = steps_to_resample
         self.scaling_resampling_percentage = scaling_resampling_percentage
         self.probabilistic_resampling = probabilistic_resampling
+        self.local_receptive_field_std_dev_factor = local_receptive_field_std_dev_factor
 
         # to keep track of resampling
         self.num_mask_updates = 1
@@ -151,7 +153,7 @@ class DendriticLayer:
         center_col = cp.random.randint(0, image_size)
 
         # The standard deviation is the square root of n_dendrite_inputs
-        std_dev = cp.power(self.n_dendrite_inputs, 0.2)
+        std_dev = cp.power(self.n_dendrite_inputs, self.local_receptive_field_std_dev_factor)
 
         # Use a set to store unique indices, starting with the center pixel
         center_idx = (center_row * image_size + center_col).item()
@@ -378,6 +380,7 @@ model = Sequential(
             steps_to_resample=500,
             scaling_resampling_percentage=False,
             probabilistic_resampling=False,
+            local_receptive_field_std_dev_factor=0.5,
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
@@ -415,7 +418,7 @@ print(f"number of model_2 params: {v_model.num_params()}")
 plot_dendritic_weights(model, X_test[0], neuron_idx=0)
 plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
-raise Exception("Stop here")
+# raise Exception("Stop here")
 
 
 compare_models(
@@ -437,8 +440,8 @@ compare_models(
 
 # Visualize the weights of the first neuron in the dendritic model
 # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
-plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+# plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
 
 # %%
