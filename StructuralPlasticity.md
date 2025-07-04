@@ -6,7 +6,7 @@ p ^(1/n) %, n being pruning round
 ## General ideas
 
 - [x] Incoprotate weight decay?
-- [ ] plot weight over picture of a dendrite
+- [x] plot weight over picture of a dendrite
 - Why does He init work? should I also choose it
 - check if dendirte connctions remains coanst with sampling
 - TODO: reset update values for Adam for the new grads

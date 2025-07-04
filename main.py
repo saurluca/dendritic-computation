@@ -293,6 +293,8 @@ class DendriticLayer:
         
         # print(f"num of dendrite successful swaps: {dendrites_to_swap.size}")
         
+        self.num_mask_updates += 1
+        
         # --- Part 5: Verification ---
         connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
         assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
@@ -318,18 +320,18 @@ class DendriticLayer:
 
 
 # for repoducability
-cp.random.seed(32)
+cp.random.seed(123125125)
 
 # data config
 dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
 
 # config
-n_epochs = 30  # 15 MNIST, 20 Fashion-MNIST
-lr = 0.001  # 0.07 - SGD
-v_lr = 0.001  # 0.015 - SGD
-weight_decay = 0.0001 #0.001
-batch_size = 128
+n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
+lr = 0.01  # 0.07 - SGD
+v_lr = 0.01  # 0.015 - SGD
+weight_decay = 0.001 #0.001
+batch_size = 256
 n_classes = 10
 
 if dataset in ["mnist", "fashion-mnist"]:
@@ -340,13 +342,13 @@ else:
     raise ValueError(f"Invalid dataset: {dataset}")
 
 # dendriticmodel config
-n_dendrite_inputs = 32
+n_dendrite_inputs = 16
 n_dendrites = 8
-n_neurons = 10
+n_neurons = 16
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
 
-print("\nRUN NAME: dendrites, 32 / 8 dendrite inputs\n")
+print("\nRUN NAME: dendrite 8 neuron 16\n")
 
 if dataset in ["mnist", "fashion-mnist"]:
     X_train, y_train, X_test, y_test = load_mnist_data(
@@ -369,8 +371,8 @@ model = Sequential(
             n_dendrites=n_dendrites,
             strategy=strategy,
             synaptic_resampling=True,
-            percentage_resample=0.8,
-            steps_to_resample=300,
+            percentage_resample=0.7,
+            steps_to_resample=150,
             scaling_resampling_percentage=False,
             probabilistic_resampling=False,
         ),
@@ -424,7 +426,7 @@ compare_models(
 # Visualize the weights of the first neuron in the dendritic model
 # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
 # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
 
 # %%

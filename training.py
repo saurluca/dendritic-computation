@@ -174,6 +174,30 @@ def compare_models(
         track_variance,
     )
 
+    # plot variance of grads
+    if track_variance:
+        # Handle variance_of_weights which is a list of lists (one list per batch, containing variances per layer)
+        # Compute mean variance across all layers for each batch
+        variance_weights_1_np = []
+        for batch_variances in variance_of_weights_1:
+            # batch_variances is a list of variances from each layer
+            # Convert each variance to float and compute mean
+            layer_variances = [float(var.get()) if hasattr(var, 'get') else float(var) for var in batch_variances]
+            variance_weights_1_np.append(sum(layer_variances) / len(layer_variances))
+        
+        variance_weights_2_np = []
+        for batch_variances in variance_of_weights_2:
+            # batch_variances is a list of variances from each layer
+            # Convert each variance to float and compute mean
+            layer_variances = [float(var.get()) if hasattr(var, 'get') else float(var) for var in batch_variances]
+            variance_weights_2_np.append(sum(layer_variances) / len(layer_variances))
+
+        plt.plot(variance_weights_1_np, label=f"{model_name_1} Variance of Weights", color="green", linestyle="--")
+        plt.plot(variance_weights_2_np, label=f"{model_name_2} Variance of Weights", color="blue", linestyle="--")
+        plt.title("Variance of Weights over epochs")
+        plt.legend()
+        plt.show()
+
     # plot accuracy of vanilla model vs dendritic model
     plt.plot(
         train_accuracy_1, label=f"{model_name_1} Train", color="green", linestyle="--"
@@ -204,38 +228,13 @@ def compare_models(
     weights_1 = cp.abs(model_1.params()[0].dendrite_W)
     weights_2 = cp.abs(model_2.params()[0].dendrite_W)
     
-    print(f"weights_1: {weights_1.shape}")
-    print(f"weights_2: {weights_2.shape}")
+    # print(f"weights_1: {weights_1.shape}")
+    # print(f"weights_2: {weights_2.shape}")
     print(f"mean weights_1: {cp.mean(weights_1)}")
     print(f"mean weights_2: {cp.mean(weights_2)}")
-    print(f"std weights_1: {cp.std(weights_1)}")
-    print(f"std weights_2: {cp.std(weights_2)}")
+    # print(f"std weights_1: {cp.std(weights_1)}")
+    # print(f"std weights_2: {cp.std(weights_2)}")
     
-    
-    # plot variance of grads
-    if track_variance:
-        # Handle variance_of_weights which is a list of lists (one list per batch, containing variances per layer)
-        # Compute mean variance across all layers for each batch
-        variance_weights_1_np = []
-        for batch_variances in variance_of_weights_1:
-            # batch_variances is a list of variances from each layer
-            # Convert each variance to float and compute mean
-            layer_variances = [float(var.get()) if hasattr(var, 'get') else float(var) for var in batch_variances]
-            variance_weights_1_np.append(sum(layer_variances) / len(layer_variances))
-        
-        variance_weights_2_np = []
-        for batch_variances in variance_of_weights_2:
-            # batch_variances is a list of variances from each layer
-            # Convert each variance to float and compute mean
-            layer_variances = [float(var.get()) if hasattr(var, 'get') else float(var) for var in batch_variances]
-            variance_weights_2_np.append(sum(layer_variances) / len(layer_variances))
-
-        plt.plot(variance_weights_1_np, label=f"{model_name_1} Variance of Weights", color="green", linestyle="--")
-        plt.plot(variance_weights_2_np, label=f"{model_name_2} Variance of Weights", color="blue", linestyle="--")
-        plt.title("Variance of Weights over epochs")
-        plt.legend()
-        plt.show()
-
     print(
         f"train loss {model_name_1} model {round(train_losses_1[-1], 4)} vs {model_name_2} {round(train_losses_2[-1], 4)}"
     )
