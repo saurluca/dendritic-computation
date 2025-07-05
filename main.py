@@ -13,7 +13,7 @@ except (ImportError, Exception) as e:
 
 from modules import Adam, CrossEntropy, LeakyReLU, Sequential
 from utils import load_mnist_data, load_cifar10_data
-from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image
+from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image, print_network_entropy
 
 
 class LinearLayer:
@@ -386,10 +386,10 @@ def main():
 
     # data config
     dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
-    subset_size = Nonel
+    subset_size = None
 
     # config
-    n_epochs = 5  # 15 MNIST, 20 Fashion-MNIST
+    n_epochs = 20 # 15 MNIST, 20 Fashion-MNIST
     lr = 0.01  # 0.07 - SGD
     v_lr = 0.01  # 0.015 - SGD
     weight_decay = 0.001 #0.001
@@ -454,7 +454,7 @@ def main():
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
-                synaptic_resampling=True,
+                synaptic_resampling=False,
                 percentage_resample=0.8,
                 steps_to_resample=200,
                 scaling_resampling_percentage=False,
@@ -468,9 +468,10 @@ def main():
     print(f"number of model_1 params: {model.num_params()}")
     print(f"number of model_2 params: {v_model.num_params()}")
 
-
-    # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-    # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+    print("Dendritic model")
+    print_network_entropy(model)
+    print("Vanilla model")
+    print_network_entropy(v_model)
 
     # raise Exception("Stop here")
 
@@ -491,11 +492,19 @@ def main():
         model_name_2="Vanilla",
         track_variance=True,
     )
+    
+    
+    print("Dendritic model")
+    print_network_entropy(model)
+    print("Vanilla model")
+    print_network_entropy(v_model)
 
     # Visualize the weights of the first neuron in the dendritic model
     # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
-    # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+    # # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
     # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+    # print("Vanilla model")
+    # plot_dendritic_weights_single_image(v_model, X_test[0], neuron_idx=0)
 
 
     # # %%

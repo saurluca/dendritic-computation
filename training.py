@@ -249,6 +249,63 @@ def compare_models(
     )
 
 
+def calculate_dendritic_spatial_entropy(dendrite_weights, dendrite_mask, image_shape=(28, 28)):
+    """
+    Calculate the spatial entropy of dendritic weights.
+    
+    Args:
+        dendrite_weights: Array of dendritic weights
+        dendrite_mask: Mask indicating which weights are active
+        image_shape: Shape to reshape the weights into
+    
+    Returns:
+        tuple: (spatial_entropy, weight_value_entropy)
+    """
+    import numpy as np
+    
+    def to_numpy(arr):
+        if hasattr(arr, 'get'):
+            return arr.get()
+        return np.asarray(arr)
+    
+    dendrite_weights = to_numpy(dendrite_weights)
+    dendrite_mask = to_numpy(dendrite_mask)
+    
+    # Apply mask to get only active weights
+    masked_weights = dendrite_weights * dendrite_mask
+    
+    # 1. Spatial entropy: How spread out are the non-zero weights?
+    # Sum across dendrites to get total activity at each spatial location
+    spatial_activity = np.sum(np.abs(masked_weights), axis=0)
+    spatial_activity_2d = spatial_activity.reshape(image_shape)
+    
+    # Normalize to create probability distribution
+    total_activity = np.sum(spatial_activity_2d)
+    if total_activity == 0:
+        spatial_entropy = 0
+    else:
+        spatial_prob = spatial_activity_2d / total_activity
+        # Remove zeros to avoid log(0)
+        spatial_prob = spatial_prob[spatial_prob > 0]
+        spatial_entropy = -np.sum(spatial_prob * np.log2(spatial_prob))
+    
+    # 2. Weight value entropy: How diverse are the weight values themselves?
+    # Get all non-zero weights
+    nonzero_weights = masked_weights[masked_weights != 0]
+    if len(nonzero_weights) == 0:
+        weight_value_entropy = 0
+    else:
+        # Create histogram of weight values
+        hist, _ = np.histogram(nonzero_weights, bins=50, density=True)
+        # Normalize to probabilities
+        hist = hist / np.sum(hist)
+        # Remove zeros
+        hist = hist[hist > 0]
+        weight_value_entropy = -np.sum(hist * np.log2(hist))
+    
+    return spatial_entropy, weight_value_entropy
+
+
 def plot_dendritic_weights(model, input_image, neuron_idx=0, image_shape=(28, 28)):
     """
     Plots the weights of each dendrite of a specific neuron from a DendriticLayer
@@ -292,6 +349,14 @@ def plot_dendritic_weights(model, input_image, neuron_idx=0, image_shape=(28, 28
     dendrite_weights = to_numpy(dendritic_layer.dendrite_W[start_idx:end_idx])
     dendrite_mask = to_numpy(dendritic_layer.dendrite_mask[start_idx:end_idx])
     
+    # Calculate entropy
+    spatial_entropy, weight_value_entropy = calculate_dendritic_spatial_entropy(
+        dendrite_weights, dendrite_mask, image_shape
+    )
+    
+    print(f"Neuron {neuron_idx} - Spatial Entropy: {spatial_entropy:.4f}")
+    print(f"Neuron {neuron_idx} - Weight Value Entropy: {weight_value_entropy:.4f}")
+    
     masked_weights = dendrite_weights * dendrite_mask
     magnitudes = np.abs(masked_weights)
     input_image_np = to_numpy(input_image)
@@ -301,7 +366,7 @@ def plot_dendritic_weights(model, input_image, neuron_idx=0, image_shape=(28, 28
     n_rows = int(math.ceil(n_dendrites / n_cols))
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * 2.5, n_rows * 2.5))
-    fig.suptitle(f"Dendritic Weight Magnitudes for Neuron {neuron_idx}", fontsize=16)
+    fig.suptitle(f"Dendritic Weight Magnitudes for Neuron {neuron_idx}\nSpatial Entropy: {spatial_entropy:.4f}, Weight Entropy: {weight_value_entropy:.4f}", fontsize=14)
     
     axes = axes.flatten()
 
@@ -370,6 +435,14 @@ def plot_dendritic_weights_single_image(model, input_image, neuron_idx=0, image_
     dendrite_weights = to_numpy(dendritic_layer.dendrite_W[start_idx:end_idx])
     dendrite_mask = to_numpy(dendritic_layer.dendrite_mask[start_idx:end_idx])
     
+    # Calculate entropy
+    spatial_entropy, weight_value_entropy = calculate_dendritic_spatial_entropy(
+        dendrite_weights, dendrite_mask, image_shape
+    )
+    
+    print(f"Neuron {neuron_idx} - Spatial Entropy: {spatial_entropy:.4f}")
+    print(f"Neuron {neuron_idx} - Weight Value Entropy: {weight_value_entropy:.4f}")
+    
     masked_weights = dendrite_weights * dendrite_mask
     input_image_np = to_numpy(input_image)
 
@@ -393,9 +466,70 @@ def plot_dendritic_weights_single_image(model, input_image, neuron_idx=0, image_
     # Add colorbar
     fig.colorbar(im, ax=ax, label="Sum of Weight Magnitudes")
     
-    ax.set_title(f'Aggregated Dendritic Weight Magnitudes for Neuron {neuron_idx}')
+    ax.set_title(f'Aggregated Dendritic Weight Magnitudes for Neuron {neuron_idx}\nSpatial Entropy: {spatial_entropy:.4f}, Weight Entropy: {weight_value_entropy:.4f}')
     ax.axis('off')
     plt.tight_layout()
     plt.show()
+
+
+def print_network_entropy(model, image_shape=(28, 28)):
+    """
+    Calculate and print entropy values for all neurons in the dendritic layer.
+    
+    Args:
+        model: The trained model containing a DendriticLayer
+        image_shape: Shape to reshape the weights into (e.g., (28, 28))
+    """
+    import numpy as np
+    
+    # Find the DendriticLayer
+    dendritic_layer = None
+    for layer in model.layers:
+        if hasattr(layer, 'dendrite_W'):
+            dendritic_layer = layer
+            break
+
+    if dendritic_layer is None:
+        print("No DendriticLayer found in the model.")
+        return
+
+    n_neurons = dendritic_layer.n_neurons
+    n_dendrites = dendritic_layer.n_dendrites
+    
+    spatial_entropies = []
+    weight_entropies = []
+    
+    print(f"=== Network Entropy Analysis ===")
+    print(f"Dendritic Layer: {n_neurons} neurons, {n_dendrites} dendrites each")
+    print(f"{'Neuron':<6} {'Spatial Entropy':<15} {'Weight Entropy':<15}")
+    
+    for neuron_idx in range(n_neurons):
+        # Get the weights and mask for the specified neuron's dendrites
+        start_idx = neuron_idx * n_dendrites
+        end_idx = start_idx + n_dendrites
+        
+        dendrite_weights = dendritic_layer.dendrite_W[start_idx:end_idx]
+        dendrite_mask = dendritic_layer.dendrite_mask[start_idx:end_idx]
+        
+        # Calculate entropy for this neuron
+        spatial_entropy, weight_value_entropy = calculate_dendritic_spatial_entropy(
+            dendrite_weights, dendrite_mask, image_shape
+        )
+        
+        spatial_entropies.append(spatial_entropy)
+        weight_entropies.append(weight_value_entropy)
+        
+    # Calculate summary statistics
+    spatial_entropies = np.array(spatial_entropies)
+    weight_entropies = np.array(weight_entropies)
+    
+    print("-" * 40)
+    print(f"{'Mean':<6} {np.mean(spatial_entropies):<15.4f} {np.mean(weight_entropies):<15.4f}")
+    print(f"{'Std':<6} {np.std(spatial_entropies):<15.4f} {np.std(weight_entropies):<15.4f}")
+    print(f"{'Min':<6} {np.min(spatial_entropies):<15.4f} {np.min(weight_entropies):<15.4f}")
+    print(f"{'Max':<6} {np.max(spatial_entropies):<15.4f} {np.max(weight_entropies):<15.4f}")
+    print(f"{'Range':<6} {np.max(spatial_entropies) - np.min(spatial_entropies):<15.4f} {np.max(weight_entropies) - np.min(weight_entropies):<15.4f}")
+    print("\n\n")
+    return spatial_entropies, weight_entropies
 
 
