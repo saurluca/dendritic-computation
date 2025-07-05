@@ -54,17 +54,26 @@ def load_mnist_data(
 
     # Normalize pixel values and convert to GPU arrays
     if normalize:
-        # mean_rgb = X_train.mean(axis=(0, 1)) # Axis 0: samples, 1: height, 2: width
-        # std_rgb = X_train.std(axis=(0, 1))
-
-        # # Normalize both training and test sets using the calculated stats
-        # X_train = (X_train - mean_rgb) / std_rgb
-        # X_test = (X_test - mean_rgb) / std_rgb
-        X_train = cp.array(X_train.astype(np.float32) / 255.0)
-        X_test = cp.array(X_test.astype(np.float32) / 255.0)
+        # Convert to float32 first
+        X_train = X_train.astype(np.float32) / 255.0
+        X_test = X_test.astype(np.float32) / 255.0
+        
+        # Calculate global mean and std from training data
+        mean_val = X_train.mean()
+        std_val = X_train.std()
+        
+        # Standardize to mean=0, std=1
+        X_train = (X_train - mean_val) / std_val
+        X_test = (X_test - mean_val) / std_val
+        
+        # Convert to CuPy arrays
+        X_train = cp.array(X_train)
+        X_test = cp.array(X_test)
     else:
         X_train = cp.array(X_train)
         X_test = cp.array(X_test)
+        
+        
 
     # Flatten images if needed (they're already flattened in mnist_784)
     if not flatten:
@@ -131,8 +140,21 @@ def load_cifar10_data(
    
     # Normalize pixel values and convert to GPU arrays
     if normalize:
-        X_train = cp.array(X_train.astype(np.float32) / 255.0)
-        X_test = cp.array(X_test.astype(np.float32) / 255.0)
+        # Convert to float32 first
+        X_train = X_train.astype(np.float32) / 255.0
+        X_test = X_test.astype(np.float32) / 255.0
+        
+        # Calculate global mean and std from training data
+        mean_val = X_train.mean()
+        std_val = X_train.std()
+        
+        # Standardize to mean=0, std=1
+        X_train = (X_train - mean_val) / std_val
+        X_test = (X_test - mean_val) / std_val
+        
+        # Convert to CuPy arrays
+        X_train = cp.array(X_train)
+        X_test = cp.array(X_test)
     else:
         X_train = cp.array(X_train)
         X_test = cp.array(X_test)
