@@ -65,6 +65,7 @@ class DendriticLayer:
         probabilistic_resampling=False,
         local_receptive_field_std_dev_factor=0.5,
         lrf_resampling_prob=0.0,
+        dynamic_steps_size=False,
     ):
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
             "Invalid strategy"
@@ -84,6 +85,7 @@ class DendriticLayer:
         self.probabilistic_resampling = probabilistic_resampling
         self.local_receptive_field_std_dev_factor = local_receptive_field_std_dev_factor
         self.lrf_resampling_prob = lrf_resampling_prob
+        self.dynamic_steps_size = dynamic_steps_size
         # to keep track of resampling
         self.num_mask_updates = 1
         self.update_steps = 0
@@ -210,7 +212,14 @@ class DendriticLayer:
             self.update_steps += 1
 
             # if enough steps have passed, resample
-            if self.update_steps >= self.steps_to_resample:
+            if self.dynamic_steps_size:
+                resample_bool = self.update_steps >= 20 + 5 * self.num_mask_updates
+                # resample_bool = self.update_steps >= cp.exp((self.num_mask_updates + 20) / 10 ) + 20
+            else:
+                # resample_bool = self.update_steps >= 20 + 10 * self.num_mask_updates
+                resample_bool = self.update_steps >= self.steps_to_resample
+            
+            if resample_bool:
                 # reset step counter
                 self.update_steps = 0
                 self.resample_dendrites()
@@ -270,9 +279,13 @@ class DendriticLayer:
         # --- Part 1: Connection Removal ---
         if self.probabilistic_resampling:
             # --- Probabilistic pruning based on weight magnitude ---
-            P_MAX_PRUNE = 0.9
-            THRESHOLD_W = 0.2
-            STEEPNESS = 0.001
+            P_MAX_PRUNE = 0.95
+            THRESHOLD_W = 0.6
+            STEEPNESS = 0.1
+            # P_MAX_PRUNE = 0.95
+            # THRESHOLD_W = 0.5
+            # STEEPNESS = 0.1 with 100
+            
             
             w_abs = cp.abs(self.dendrite_W)
             # Sigmoid-based pruning probability
@@ -353,7 +366,7 @@ class DendriticLayer:
                 cp.random.randn(dendrites_to_swap.shape[0]) * cp.sqrt(2.0 / self.in_dim)
             )
         
-        # print(f"num of dendrite successful swaps: {dendrites_to_swap.size}")
+        print(f"num of dendrite successful swaps: {dendrites_to_swap.size}")
         
         self.num_mask_updates += 1
         
@@ -363,9 +376,9 @@ class DendriticLayer:
             f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
 
     def num_params(self):
-        # print(
-        #     f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
-        # )
+        print(
+            f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
+        )
         return int(
             cp.sum(self.dendrite_mask)
             + self.dendrite_b.size
@@ -389,7 +402,7 @@ def main():
     subset_size = None
 
     # config
-    n_epochs = 20 # 15 MNIST, 20 Fashion-MNIST
+    n_epochs = 15 # 15 MNIST, 20 Fashion-MNIST
     lr = 0.01  # 0.07 - SGD
     v_lr = 0.01  # 0.015 - SGD
     weight_decay = 0.001 #0.001
@@ -421,7 +434,6 @@ def main():
             subset_size=subset_size
         )
 
-
     print("Preparing model...")
     criterion = CrossEntropy()
     model = Sequential(
@@ -433,9 +445,11 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
                 synaptic_resampling=True,
-                percentage_resample=0.8,
-                steps_to_resample=200,
+                percentage_resample=0.7,
+                steps_to_resample=100,
                 scaling_resampling_percentage=False,
+                dynamic_steps_size=True,
+                probabilistic_resampling=True,
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -454,10 +468,12 @@ def main():
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
                 strategy=strategy,
-                synaptic_resampling=False,
-                percentage_resample=0.8,
-                steps_to_resample=200,
+                synaptic_resampling=True,
+                percentage_resample=0.9,
+                steps_to_resample=100,
                 scaling_resampling_percentage=False,
+                dynamic_steps_size=True,
+                probabilistic_resampling=False,
             ),
             LeakyReLU(),
             LinearLayer(n_neurons, n_classes),
@@ -468,14 +484,18 @@ def main():
     print(f"number of model_1 params: {model.num_params()}")
     print(f"number of model_2 params: {v_model.num_params()}")
 
-    print("Dendritic model")
-    print_network_entropy(model)
-    print("Vanilla model")
-    print_network_entropy(v_model)
+    # print("Dendritic model")
+    # print_network_entropy(model)
+    # print("Vanilla model")
+    # print_network_entropy(v_model)
 
     # raise Exception("Stop here")
-
-
+    
+    print("\n\n")
+    print(f"number of mask updates: {model.layers[0].num_mask_updates}")
+    print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
+    print("\n\n")
+    
     compare_models(
         model,
         v_model,
@@ -493,11 +513,15 @@ def main():
         track_variance=True,
     )
     
+    # print("Dendritic model")
+    # print_network_entropy(model)
+    # print("Vanilla model")
+    # print_network_entropy(v_model)
     
-    print("Dendritic model")
-    print_network_entropy(model)
-    print("Vanilla model")
-    print_network_entropy(v_model)
+    print("\n\n")
+    print(f"number of mask updates: {model.layers[0].num_mask_updates}")
+    print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
+    print("\n\n")
 
     # Visualize the weights of the first neuron in the dendritic model
     # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")

@@ -159,6 +159,9 @@ def compare_models(
         batch_size,
         track_variance,
     )
+    print(f"train loss {model_name_1} model {round(train_losses_1[-1], 4)}")
+    print(f"train accuracy {model_name_1} model {round(train_accuracy_1[-1] * 100, 1)}%")
+    print(f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}%")
 
     print(f"Training {model_name_2} model...")
     train_losses_2, train_accuracy_2, test_losses_2, test_accuracy_2, variance_of_weights_2 = train(
