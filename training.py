@@ -101,6 +101,9 @@ def train(
             accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
             test_losses.append(float(epoch_test_loss))
             test_accuracy.append(float(epoch_test_accuracy))
+            
+            if epoch % 10 == 0:
+                print(f"Epoch {epoch} - Train Loss: {train_losses[-1]} - Test Loss: {test_losses[-1]} - Train Accuracy: {accuracy[-1]} - Test Accuracy: {test_accuracy[-1]}")
     return train_losses, accuracy, test_losses, test_accuracy, variance_of_weights
 
 
@@ -130,11 +133,61 @@ def evaluate(
     return float(normalised_test_loss), float(accuracy)
 
 
+def train_one_model(
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    model,
+    criterion,
+    optimiser,
+    n_epochs=2,
+    batch_size=256,
+):
+    
+    print(f"number of params: {model.num_params()}")
+
+    train_losses, train_accuracy, test_losses, test_accuracy, _ = train(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        model,
+        criterion,
+        optimiser,
+        n_epochs=n_epochs,
+        batch_size=batch_size,
+    )
+    
+    print(f"number of mask updates: {model.layers[0].num_mask_updates}")
+
+    
+    # plot train and test accuracy
+    plt.plot(train_losses, label="Train Loss", color="blue")
+    plt.plot(test_losses, label="Test Loss", color="red")
+    plt.legend()
+    plt.show()  
+    # plt.savefig("train_losses.png")
+    
+    plt.plot(train_accuracy, label="Train Accuracy", color="blue")
+    plt.plot(test_accuracy, label="Test Accuracy", color="red")
+    plt.legend()
+    plt.show()
+    # plt.savefig("train_accuracy.png")
+    
+    print(f"train loss: {train_losses[-1]:.3f}")
+    print(f"test loss: {test_losses[-1]:.3f}")
+    print(f"train accuracy: {train_accuracy[-1]:.3f}")
+    print(f"test accuracy: {test_accuracy[-1]:.3f}")
+
+
 def compare_models(
     model_1,
     model_2,
+    model_3,
     optimiser_1,
     optimiser_2,
+    optimiser_3,
     X_train,
     y_train,
     X_test,
@@ -142,8 +195,9 @@ def compare_models(
     criterion,
     n_epochs=10,
     batch_size=256,
-    model_name_1="Dendritic",
-    model_name_2="Vanilla",
+    model_name_1="Synaptic Resampling",
+    model_name_2="Base Dendritic",
+    model_name_3="Vanilla ANN",
     track_variance=False,
 ):
     print(f"Training {model_name_1} model...")
@@ -176,7 +230,26 @@ def compare_models(
         batch_size,
         track_variance,
     )
+    
+    print(f"train loss {model_name_2} model {round(train_losses_2[-1], 4)}")
+    print(f"train accuracy {model_name_2} model {round(train_accuracy_2[-1] * 100, 1)}%")
+    print(f"test accuracy {model_name_2} model {round(test_accuracy_2[-1] * 100, 1)}%")
 
+
+    print(f"Training {model_name_3} model...")
+    train_losses_3, train_accuracy_3, test_losses_3, test_accuracy_3, variance_of_weights_3 = train(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        model_3,
+        criterion,
+        optimiser_3,
+        n_epochs,
+        batch_size,
+        track_variance,
+    )   
+        
     # plot variance of grads
     if track_variance:
         # Handle variance_of_weights which is a list of lists (one list per batch, containing variances per layer)
@@ -208,8 +281,11 @@ def compare_models(
     plt.plot(
         train_accuracy_2, label=f"{model_name_2} Train", color="blue", linestyle="--"
     )
+    plt.plot(train_accuracy_3, label=f"{model_name_3} Train", color="red", linestyle="--"
+    )
     plt.plot(test_accuracy_1, label=f"{model_name_1} Test", color="green")
     plt.plot(test_accuracy_2, label=f"{model_name_2} Test", color="blue")
+    plt.plot(test_accuracy_3, label=f"{model_name_3} Test", color="red")
     plt.title("Accuracy over epochs")
     plt.legend()
     plt.show()
@@ -221,34 +297,37 @@ def compare_models(
     plt.plot(
         train_losses_2, label=f"{model_name_2} Train", color="blue", linestyle="--"
     )
+    plt.plot(train_losses_3, label=f"{model_name_3} Train", color="red", linestyle="--"
+    )
     plt.plot(test_losses_1, label=f"{model_name_1} Test", color="green")
     plt.plot(test_losses_2, label=f"{model_name_2} Test", color="blue")
+    plt.plot(test_losses_3, label=f"{model_name_3} Test", color="red")
     plt.title("Loss over epochs")
     plt.legend()
     plt.show()
     
     # print final weight stats of dendritc layer
-    weights_1 = cp.abs(model_1.params()[0].dendrite_W)
-    weights_2 = cp.abs(model_2.params()[0].dendrite_W)
+    # weights_1 = cp.abs(model_1.params()[0].dendrite_W)
+    # weights_2 = cp.abs(model_2.params()[0].dendrite_W)
     
     # print(f"weights_1: {weights_1.shape}")
     # print(f"weights_2: {weights_2.shape}")
-    print(f"mean weights_1: {cp.mean(weights_1)}")
-    print(f"mean weights_2: {cp.mean(weights_2)}")
+    # print(f"mean weights_1: {cp.mean(weights_1)}")
+    # print(f"mean weights_2: {cp.mean(weights_2)}")
     # print(f"std weights_1: {cp.std(weights_1)}")
     # print(f"std weights_2: {cp.std(weights_2)}")
     
     print(
-        f"train loss {model_name_1} model {round(train_losses_1[-1], 4)} vs {model_name_2} {round(train_losses_2[-1], 4)}"
+        f"train loss {model_name_1} model {round(train_losses_1[-1], 4)} vs {model_name_2} {round(train_losses_2[-1], 4)} vs {model_name_3} {round(train_losses_3[-1], 4)}" 
     )
     print(
-        f"test loss {model_name_1} model {round(test_losses_1[-1], 4)} vs {model_name_2} {round(test_losses_2[-1], 4)}"
+        f"test loss {model_name_1} model {round(test_losses_1[-1], 4)} vs {model_name_2} {round(test_losses_2[-1], 4)} vs {model_name_3} {round(test_losses_3[-1], 4)}"
     )
     print(
-        f"train accuracy {model_name_1} model {round(train_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(train_accuracy_2[-1] * 100, 1)}%"
+        f"train accuracy {model_name_1} model {round(train_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(train_accuracy_2[-1] * 100, 1)}% vs {model_name_3} {round(train_accuracy_3[-1] * 100, 1)}%"
     )
     print(
-        f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(test_accuracy_2[-1] * 100, 1)}%"
+        f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(test_accuracy_2[-1] * 100, 1)}% vs {model_name_3} {round(test_accuracy_3[-1] * 100, 1)}%"
     )
 
 
