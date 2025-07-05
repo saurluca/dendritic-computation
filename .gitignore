@@ -13,3 +13,4 @@ wheels/
 
 # Data
 grid_search_results.json
+results/

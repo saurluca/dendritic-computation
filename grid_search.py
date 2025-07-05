@@ -100,12 +100,15 @@ def grid_search(param_grid, dataset="fashion-mnist", subset_size=None, n_epochs=
     return results
 
 if __name__ == '__main__':
-    param_grid = {
+    # param_grid = {
         'percentage_resample': [0.1, 0.2, 0.5, 0.9],
+        # percentage_resample: [0.05, 0.1, 0.2, 0.4, 0.8] use next time
         'steps_to_resample': [50, 100, 200, 500, 1000],
+        # 'steps_to_resample': [64, 128, 256, 512, 1024], use next time
         'n_dendrite_inputs': [8, 16, 32],
         'n_dendrites': [8, 16, 32],
         'n_neurons': [8, 16, 32, 128]
+        # n_neurons': [8, 16, 32, 64, 128] use next time
     }
 
     grid_search(param_grid, dataset="fashion-mnist", n_epochs=20) # a small number of epochs for testing 
