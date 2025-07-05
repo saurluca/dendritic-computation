@@ -10,8 +10,12 @@ p ^(1/n) %, n being pruning round
 - [x] Why does He init work? should I also choose it -> only good for weight init
 - [x] number check if dendirte connctions remains coanst with sampling -> yes
 - [x] reset update values for Adam for the new grads -> worsens results if reset
-- [ ] implement local recpeitve fields, then resample based on gaussian distribution
+- [x] implement local recpeitve fields, then resample based on gaussian distribution -> same to worse results
 - [ ] run param search over night.
+- [ ] Decrease frequency of param removal for later batches
+- [ ] rensure during the last n batches of training, before eval, not to remove batches
+- [ ] mean or rolling average of a weight sntead of current value
+- [ ] calculate entropy (noiseis) of weight distributon for a dendrite, once at beginning and at the end to compare
 
 ### Triggerig resampling
 

@@ -380,129 +380,127 @@ class DendriticLayer:
         return self.forward(x)
 
 
+def main():
+    # for repoducability
+    cp.random.seed(1231225)
 
-# for repoducability
-cp.random.seed(123125125)
+    # data config
+    dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
+    subset_size = Nonel
 
-# data config
-dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
-subset_size = None
+    # config
+    n_epochs = 5  # 15 MNIST, 20 Fashion-MNIST
+    lr = 0.01  # 0.07 - SGD
+    v_lr = 0.01  # 0.015 - SGD
+    weight_decay = 0.001 #0.001
+    batch_size = 256
+    n_classes = 10
 
-# config
-n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
-lr = 0.01  # 0.07 - SGD
-v_lr = 0.01  # 0.015 - SGD
-weight_decay = 0.001 #0.001
-batch_size = 256
-n_classes = 10
+    if dataset in ["mnist", "fashion-mnist"]:
+        in_dim = 28 * 28  # Image dimensions (28x28 MNIST, 32x32x3 CIFAR-10)
+    elif dataset == "cifar10":
+        in_dim = 32 * 32 * 3
+    else:
+        raise ValueError(f"Invalid dataset: {dataset}")
 
-if dataset in ["mnist", "fashion-mnist"]:
-    in_dim = 28 * 28  # Image dimensions (28x28 MNIST, 32x32x3 CIFAR-10)
-elif dataset == "cifar10":
-    in_dim = 32 * 32 * 3
-else:
-    raise ValueError(f"Invalid dataset: {dataset}")
-
-# dendriticmodel config
-n_dendrite_inputs = 16
-n_dendrites = 16
-n_neurons = 16
-strategy = "local-receptive-fields"  # ["random", "local-receptive-fields", "fully-connected"]
+    # dendriticmodel config
+    n_dendrite_inputs = 16
+    n_dendrites = 8
+    n_neurons = 16
+    strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
 
-print("\nRUN NAME: synaptic resampling\n")
+    print("\nRUN NAME: synaptic resampling\n")
 
-if dataset in ["mnist", "fashion-mnist"]:
-    X_train, y_train, X_test, y_test = load_mnist_data(
-        dataset=dataset, subset_size=subset_size
+    if dataset in ["mnist", "fashion-mnist"]:
+        X_train, y_train, X_test, y_test = load_mnist_data(
+            dataset=dataset, subset_size=subset_size
+        )
+    elif dataset == "cifar10":
+        X_train, y_train, X_test, y_test = load_cifar10_data(
+            subset_size=subset_size
+        )
+
+
+    print("Preparing model...")
+    criterion = CrossEntropy()
+    model = Sequential(
+        [
+            DendriticLayer(
+                in_dim,
+                n_neurons,
+                n_dendrite_inputs=n_dendrite_inputs,
+                n_dendrites=n_dendrites,
+                strategy=strategy,
+                synaptic_resampling=True,
+                percentage_resample=0.8,
+                steps_to_resample=200,
+                scaling_resampling_percentage=False,
+            ),
+            LeakyReLU(),
+            LinearLayer(n_neurons, n_classes),
+        ]
     )
-elif dataset == "cifar10":
-    X_train, y_train, X_test, y_test = load_cifar10_data(
-        subset_size=subset_size
+
+    optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay)
+
+    v_criterion = CrossEntropy()
+
+    v_model = Sequential(
+        [
+            DendriticLayer(
+                in_dim,
+                n_neurons,
+                n_dendrite_inputs=n_dendrite_inputs,
+                n_dendrites=n_dendrites,
+                strategy=strategy,
+                synaptic_resampling=True,
+                percentage_resample=0.8,
+                steps_to_resample=200,
+                scaling_resampling_percentage=False,
+            ),
+            LeakyReLU(),
+            LinearLayer(n_neurons, n_classes),
+        ]
+    )
+    v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
+
+    print(f"number of model_1 params: {model.num_params()}")
+    print(f"number of model_2 params: {v_model.num_params()}")
+
+
+    # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+    # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+
+    # raise Exception("Stop here")
+
+
+    compare_models(
+        model,
+        v_model,
+        optimiser,
+        v_optimiser,
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        criterion,
+        n_epochs=n_epochs,
+        batch_size=batch_size,
+        model_name_1="Dendritic",
+        model_name_2="Vanilla",
+        track_variance=True,
     )
 
-
-print("Preparing model...")
-criterion = CrossEntropy()
-model = Sequential(
-    [
-        DendriticLayer(
-            in_dim,
-            n_neurons,
-            n_dendrite_inputs=n_dendrite_inputs,
-            n_dendrites=n_dendrites,
-            strategy=strategy,
-            synaptic_resampling=False,
-            percentage_resample=0.8,
-            steps_to_resample=200,
-            scaling_resampling_percentage=False,
-            local_receptive_field_std_dev_factor=0.25,
-            lrf_resampling_prob=0.0,
-        ),
-        LeakyReLU(),
-        LinearLayer(n_neurons, n_classes),
-    ]
-)
-
-optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay)
-
-v_criterion = CrossEntropy()
-
-v_model = Sequential(
-    [
-        DendriticLayer(
-            in_dim,
-            n_neurons,
-            n_dendrite_inputs=n_dendrite_inputs,
-            n_dendrites=n_dendrites,
-            strategy="random",
-            synaptic_resampling=False,
-            percentage_resample=0.8,
-            steps_to_resample=200,
-            scaling_resampling_percentage=False,
-            local_receptive_field_std_dev_factor=0.5,
-            lrf_resampling_prob=0.0,
-        ),
-        LeakyReLU(),
-        LinearLayer(n_neurons, n_classes),
-    ]
-)
-v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
-
-print(f"number of model_1 params: {model.num_params()}")
-print(f"number of model_2 params: {v_model.num_params()}")
+    # Visualize the weights of the first neuron in the dendritic model
+    # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
+    # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+    # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
 
 
-plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+    # # %%
+    # for i in range(10):
+    #     plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
 
-# raise Exception("Stop here")
-
-
-compare_models(
-    model,
-    v_model,
-    optimiser,
-    v_optimiser,
-    X_train,
-    y_train,
-    X_test,
-    y_test,
-    criterion,
-    n_epochs=n_epochs,
-    batch_size=batch_size,
-    model_name_1="Dendritic",
-    model_name_2="Vanilla",
-    track_variance=True,
-)
-
-# Visualize the weights of the first neuron in the dendritic model
-# print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
-# plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
-
-
-# %%
-for i in range(10):
-    plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
-
+if __name__ == "__main__":
+    main()
