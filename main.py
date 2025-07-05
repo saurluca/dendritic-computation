@@ -14,7 +14,7 @@ except (ImportError, Exception) as e:
 from matplotlib import pyplot as plt
 from modules import Adam, CrossEntropy, LeakyReLU, Sequential
 from utils import load_mnist_data, load_cifar10_data
-from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image, print_network_entropy, train
+from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image, print_network_entropy, train, train_one_model
 
 
 class LinearLayer:
@@ -402,11 +402,11 @@ def main():
     cp.random.seed(2421223)
 
     # data config
-    dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
+    dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
     subset_size = None
 
     # config
-    n_epochs = 25 # 15 MNIST, 20 Fashion-MNIST
+    n_epochs = 50 # 15 MNIST, 20 Fashion-MNIST
     lr = 0.003  # 0.07 - SGD
     v_lr = 0.003  # 0.015 - SGD
     b_lr = 0.003  # 0.015 - SGD
@@ -422,9 +422,9 @@ def main():
         raise ValueError(f"Invalid dataset: {dataset}")
 
     # dendriticmodel config
-    n_dendrite_inputs = 16
-    n_dendrites = 8
-    n_neurons = 16
+    n_dendrite_inputs = 3
+    n_dendrites = 1
+    n_neurons = 10
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
     print("\nRUN NAME: synaptic resampling FALSE\n")
@@ -438,6 +438,7 @@ def main():
             subset_size=subset_size
         )
 
+
     print("Preparing model...")
     criterion = CrossEntropy()
     model = Sequential(
@@ -447,85 +448,104 @@ def main():
                 n_neurons,
                 n_dendrite_inputs=n_dendrite_inputs,
                 n_dendrites=n_dendrites,
-                strategy="random",
+                strategy=strategy,
                 synaptic_resampling=True,
                 percentage_resample=0.9,
                 steps_to_resample=100,
                 scaling_resampling_percentage=False,
                 dynamic_steps_size=False,
             ),
-            LeakyReLU(),
-            LinearLayer(n_neurons, n_classes),
+            # LeakyReLU(),
+            # LinearLayer(n_neurons, n_classes),
         ]
     )
     optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay, grad_clip=0.1)
 
-    # # baseline dendritic model
-    # b_criterion = CrossEntropy()
-    # b_model = Sequential(
-    #     [
-    #         DendriticLayer(
-    #             in_dim,
-    #             n_neurons,
-    #             n_dendrite_inputs=n_dendrite_inputs,
-    #             n_dendrites=n_dendrites,
-    #             strategy=strategy,
-    #             synaptic_resampling=False,
-    #         ),
-    #         LeakyReLU(),
-    #         LinearLayer(n_neurons, n_classes),
-    #     ]
-    # )
-    # b_optimiser = Adam(b_model.params(), b_criterion, lr=b_lr, weight_decay=weight_decay)
+    train_one_model(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        model,
+        criterion,
+        optimiser,
+        n_epochs=n_epochs,
+        batch_size=batch_size,
+    )
+    
+    for i in range(10):
+        plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
+    
+if __name__ == "__main__":
+    main()
 
-    # # vanilla model 
-    # v_criterion = CrossEntropy()
-    # v_model = Sequential(
-    #     [
-    #         LinearLayer(in_dim, 12),
-    #         LeakyReLU(),
-    #         LinearLayer(12, 10),
-    #         LeakyReLU(),
-    #         LinearLayer(10, n_classes),
-    #     ]
-    # )
-    # v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
+# %%
+    # baseline dendritic model
+    b_criterion = CrossEntropy()
+    b_model = Sequential(
+        [
+            DendriticLayer(
+                in_dim,
+                n_neurons,
+                n_dendrite_inputs=n_dendrite_inputs,
+                n_dendrites=n_dendrites,
+                strategy=strategy,
+                synaptic_resampling=False,
+            ),
+            LeakyReLU(),
+            LinearLayer(n_neurons, n_classes),
+        ]
+    )
+    b_optimiser = Adam(b_model.params(), b_criterion, lr=b_lr, weight_decay=weight_decay)
 
-    # print(f"number of model_1 params: {model.num_params()}")
-    # print(f"number of model_2 params: {b_model.num_params()}")
-    # print(f"number of model_3 params: {v_model.num_params()}")
+    # vanilla model 
+    v_criterion = CrossEntropy()
+    v_model = Sequential(
+        [
+            LinearLayer(in_dim, 10),
+            # LeakyReLU(),
+            # LinearLayer(12, 10),
+            # LeakyReLU(),
+            # LinearLayer(10, n_classes),
+        ]
+    )
+    v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
 
-    # print("Dendritic model")
+    print(f"number of model_1 params: {model.num_params()}")
+    print(f"number of model_2 params: {b_model.num_params()}")
+    print(f"number of model_3 params: {v_model.num_params()}")
+
+    print("Dendritic model")
     # print_network_entropy(model)
-    # print("Vanilla model")
+    print("Vanilla model")
     # print_network_entropy(v_model)
 
     # raise Exception("Stop here")
     
-    # print("\n\n")
-    # print(f"number of mask updates: {model.layers[0].num_mask_updates}")
+    print("\n\n")
+    print(f"number of mask updates: {model.layers[0].num_mask_updates}")
     # print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
-    # print("\n\n")
+    print("\n\n")
     
-    # compare_models(
-    #     model,
-    #     b_model,
-    #     v_model,
-    #     optimiser,
-    #     b_optimiser,
-    #     v_optimiser,
-    #     X_train,
-    #     y_train,
-    #     X_test,
-    #     y_test,
-    #     criterion,
-    #     n_epochs=n_epochs,
-    #     batch_size=batch_size,
-    #     model_name_1="Synaptic Resampling",
-    #     model_name_2="Base Dendritic",
-    #     model_name_3="Vanilla ANN",
-    #     track_variance=False,
-    # )
+    compare_models(
+        model,
+        b_model,
+        v_model,
+        optimiser,
+        b_optimiser,
+        v_optimiser,
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        criterion,
+        n_epochs=n_epochs,
+        batch_size=batch_size,
+        model_name_1="Synaptic Resampling",
+        model_name_2="Base Dendritic",
+        model_name_3="Vanilla ANN",
+        track_variance=False,
+    )
     
     # print("Dendritic model")
     # print_network_entropy(model)
@@ -533,7 +553,7 @@ def main():
     # print_network_entropy(v_model)
     
     # print("\n\n")
-    print(f"number of mask updates: {model.layers[0].num_mask_updates}")
+    # print(f"number of mask updates: {model.layers[0].num_mask_updates}")
     # print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
     # print("\n\n")
 
