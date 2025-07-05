@@ -163,6 +163,7 @@ class Adam:
         beta2=0.999,
         eps=1e-8,
         weight_decay=0.0,
+        grad_clip=None,
     ):
         self.params = params
         self.criterion = criterion
@@ -172,6 +173,7 @@ class Adam:
         self.eps = eps
         self.t = 0  # Global time step, increments once per batch
         self.weight_decay = weight_decay
+        self.grad_clip = grad_clip
 
         # Initialize moment estimates based on layer type
         self.m = []
@@ -239,6 +241,9 @@ class Adam:
                 # Bias correction
                 m_hat = self.m[i][j] / (1 - self.beta1**self.t)
                 v_hat = self.v[i][j] / (1 - self.beta2**self.t)
+
+                if self.grad_clip:
+                    m_hat = cp.clip(m_hat, -self.grad_clip, self.grad_clip)
 
                 # Update parameters
                 param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps)
