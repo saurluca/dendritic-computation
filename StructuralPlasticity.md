@@ -16,6 +16,7 @@ p ^(1/n) %, n being pruning round
 - [ ] rensure during the last n batches of training, before eval, not to remove batches
 - [ ] mean or rolling average of a weight sntead of current value
 - [ ] calculate entropy (noiseis) of weight distributon for a dendrite, once at beginning and at the end to compare
+- [ ] Decrease percentage of weights to be scrapepd over time
 
 ### Triggerig resampling
 

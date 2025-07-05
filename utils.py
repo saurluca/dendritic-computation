@@ -14,7 +14,7 @@ import numpy as np
 
 
 def load_mnist_data(
-    dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None
+    rng, dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None
 ):
     """
     Download and load the MNIST or Fashion-MNIST dataset.
@@ -46,7 +46,13 @@ def load_mnist_data(
     data = fetch_openml(
         dataset_name, version=1, as_frame=False, parser="auto", cache=True
     )
-    X, y = data.data, data.target.astype(int)
+    
+    # Shuffle both data and labels together to maintain correspondence
+    n_samples = len(data.data)
+    shuffle_indices = np.arange(n_samples)
+    rng.shuffle(shuffle_indices)
+    
+    X, y = data.data[shuffle_indices], data.target.astype(int)[shuffle_indices]
 
     # Split into train and test (last 10k samples for test, rest for train)
     X_train, X_test = X[:60000], X[60000:]
@@ -109,11 +115,12 @@ def load_mnist_data(
 
 
 def load_cifar10_data(
-    normalize=True, flatten=True, one_hot=True, subset_size=None
+    rng, normalize=True, flatten=True, one_hot=True, subset_size=None
 ):
     """
     Download and load the CIFAR-10 dataset.
     Args:
+        rng: Random number generator for shuffling data
         normalize (bool): If True, normalize pixel values to [0, 1]
         flatten (bool): If True, keep images as 3072-dimensional vectors.
                         If False, reshape to (batch, 3, 32, 32).
@@ -129,7 +136,13 @@ def load_cifar10_data(
     data = fetch_openml(
         dataset_name, version=1, as_frame=False, parser="auto", cache=True
     )
-    X, y = data.data, data.target.astype(int)
+    
+    # Shuffle both data and labels together to maintain correspondence
+    n_samples = len(data.data)
+    shuffle_indices = np.arange(n_samples)
+    rng.shuffle(shuffle_indices)
+    
+    X, y = data.data[shuffle_indices], data.target.astype(int)[shuffle_indices]
 
     print("finished downloading data")
 
