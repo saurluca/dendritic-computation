@@ -186,26 +186,30 @@ class DendriticLayer:
     def forward(self, x):
         # dendrites forward pass
         self.dendrite_x = x
-        x = x @ self.dendrite_W.T + self.dendrite_b
+        x = x @ self.dendrite_W.T
+        # + self.dendrite_b
         x = self.dendrite_activation(x)
 
         # soma forward pass
         self.soma_x = x
-        x = x @ self.soma_W.T + self.soma_b
-        return self.soma_activation(x)
+        # x = x @ self.soma_W.T
+        # + self.soma_b
+        # x = self.soma_activation(x)
+        return x
 
     def backward(self, grad):
-        grad = self.soma_activation.backward(grad)
+        # grad = self.soma_activation.backward(grad)
 
         # soma back pass, multiply with mask to keep only valid gradients
-        self.soma_dW = grad.T @ self.soma_x * self.soma_mask
-        self.soma_db = grad.sum(axis=0)
-        soma_grad = grad @ self.soma_W
+        # self.soma_dW = grad.T @ self.soma_x * self.soma_mask
+        # self.soma_db = grad.sum(axis=0)
+        # soma_grad = grad @ self.soma_W
 
-        soma_grad = self.dendrite_activation.backward(soma_grad)
+        soma_grad = self.dendrite_activation.backward(grad)
 
         # dendrite back pass
-        self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
+        # self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
+        self.dendrite_dW = grad.T @ self.dendrite_x * self.dendrite_mask
         self.dendrite_db = soma_grad.sum(axis=0)
         dendrite_grad = soma_grad @ self.dendrite_W
 
@@ -218,8 +222,7 @@ class DendriticLayer:
                 # resample_bool = self.update_steps >= cp.exp((self.num_mask_updates + 20) / 10 ) + 20
             else:
                 # resample_bool = self.update_steps >= 20 + 10 * self.num_mask_updates
-                resample_bool = self.update_steps >= self.steps_to_resample
-                # and self.num_mask_updates < 10
+                resample_bool = self.update_steps >= self.steps_to_resample and self.num_mask_updates < 1700
                 
             if resample_bool:
                 # reset step counter
@@ -399,7 +402,7 @@ def main():
     import numpy as np
     rng = np.random.default_rng(2421223)
     # for repoducability
-    cp.random.seed(2421223)
+    cp.random.seed(242122223)
 
     # data config
     dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
@@ -407,7 +410,7 @@ def main():
 
     # config
     n_epochs = 50 # 15 MNIST, 20 Fashion-MNIST
-    lr = 0.003  # 0.07 - SGD
+    lr = 0.003  # 0.003
     v_lr = 0.003  # 0.015 - SGD
     b_lr = 0.003  # 0.015 - SGD
     weight_decay = 0.01 #0.001
@@ -422,7 +425,7 @@ def main():
         raise ValueError(f"Invalid dataset: {dataset}")
 
     # dendriticmodel config
-    n_dendrite_inputs = 3
+    n_dendrite_inputs = 2
     n_dendrites = 1
     n_neurons = 10
     strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
@@ -450,8 +453,8 @@ def main():
                 n_dendrites=n_dendrites,
                 strategy=strategy,
                 synaptic_resampling=True,
-                percentage_resample=0.9,
-                steps_to_resample=100,
+                percentage_resample=0.5,
+                steps_to_resample=5,
                 scaling_resampling_percentage=False,
                 dynamic_steps_size=False,
             ),
@@ -473,8 +476,8 @@ def main():
         batch_size=batch_size,
     )
     
-    for i in range(10):
-        plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
+    # for i in range(10):
+        # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
     
 if __name__ == "__main__":
     main()
@@ -566,8 +569,8 @@ if __name__ == "__main__":
 
 
     # # %%
-    # for i in range(10):
-    #     plot_dendritic_weights_single_image(model, X_test[i], neuron_idx=i)
+    for i in range(10):
+        plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
 
 if __name__ == "__main__":
     main()

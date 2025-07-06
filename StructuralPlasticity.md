@@ -54,7 +54,13 @@ Current implemnation has same training time but better results.
 ## Low params
 
 
-MNIST: 60 params - 87% accuracy 3/1/10
+MNIST: 
+- 82% - 50 - 2/1/10
+- 87% - 60 params - 3/1/10
+- 87.7% - 20 params, removing all biases and soma_w - 2/10
+- 95% - 840 params - 8/8/10
+
+
 
 70 params, wiht 4 / 1 / 10 and 30 epochs
 
