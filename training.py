@@ -554,6 +554,116 @@ def plot_dendritic_weights_single_image(model, input_image, neuron_idx=0, image_
     plt.show()
 
 
+def plot_dendritic_weights_full_model(model, input_image, image_shape=(28, 28)):
+    """
+    Plots the aggregated magnitude of all dendritic weights across all neurons in the model.
+    Shows the combined weight pattern without any background image.
+    """
+    import numpy as np
+    
+    def to_numpy(arr):
+        if hasattr(arr, 'get'):
+            return arr.get()
+        return np.asarray(arr)
+
+    # Find the DendriticLayer
+    dendritic_layer = None
+    for layer in model.layers:
+        if hasattr(layer, 'dendrite_W'):
+            dendritic_layer = layer
+            break
+
+    if dendritic_layer is None:
+        print("No DendriticLayer found in the model.")
+        return
+
+    n_neurons = dendritic_layer.n_neurons
+    n_dendrites = dendritic_layer.n_dendrites
+    
+    print(f"Visualizing {n_neurons} neurons, {n_dendrites} dendrites each")
+    
+    # Get all dendritic weights and masks
+    dendrite_weights = to_numpy(dendritic_layer.dendrite_W)
+    dendrite_mask = to_numpy(dendritic_layer.dendrite_mask)
+    
+    # Calculate entropy for the entire network
+    spatial_entropy, weight_value_entropy = calculate_dendritic_spatial_entropy(
+        dendrite_weights, dendrite_mask, image_shape
+    )
+    
+    print(f"Full Model - Spatial Entropy: {spatial_entropy:.4f}")
+    print(f"Full Model - Weight Value Entropy: {weight_value_entropy:.4f}")
+    
+    # Apply mask to get only active weights
+    masked_weights = dendrite_weights * dendrite_mask
+    
+    # Calculate magnitudes and sum across all dendrites and neurons
+    magnitudes = np.abs(masked_weights)
+    total_magnitudes = np.sum(magnitudes, axis=0)
+    
+    # Reshape for plotting
+    total_magnitudes_2d = total_magnitudes.reshape(image_shape)
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    # Plot heatmap of all dendritic weights
+    im = ax.imshow(total_magnitudes_2d, cmap='viridis', interpolation='nearest')
+    
+    # Add colorbar
+    fig.colorbar(im, ax=ax, label="Sum of All Dendritic Weight Magnitudes")
+    
+    ax.set_title(f'All Dendritic Weights Aggregated\n'
+                f'Spatial Entropy: {spatial_entropy:.4f}, Weight Entropy: {weight_value_entropy:.4f}\n'
+                f'Total Neurons: {n_neurons}, Dendrites per Neuron: {n_dendrites}')
+    ax.axis('off')
+    plt.tight_layout()
+    plt.show()
+    
+    # Also create a subplot showing individual neuron contributions
+    fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+    fig.suptitle('Dendritic Weight Analysis - Full Model', fontsize=16)
+    
+    # Plot 1: All weights aggregated
+    im1 = axes[0, 0].imshow(total_magnitudes_2d, cmap='viridis', interpolation='nearest')
+    axes[0, 0].set_title('All Dendritic Weights')
+    axes[0, 0].axis('off')
+    fig.colorbar(im1, ax=axes[0, 0], shrink=0.7)
+    
+    # Plot 2: Weight distribution histogram
+    axes[0, 1].hist(magnitudes[magnitudes > 0], bins=50, alpha=0.7, color='blue', edgecolor='black')
+    axes[0, 1].set_title('Weight Magnitude Distribution')
+    axes[0, 1].set_xlabel('Weight Magnitude')
+    axes[0, 1].set_ylabel('Frequency')
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # Plot 3: Spatial activity map (sum of absolute weights at each location)
+    spatial_activity = np.sum(np.abs(masked_weights), axis=0).reshape(image_shape)
+    im3 = axes[1, 0].imshow(spatial_activity, cmap='plasma', interpolation='nearest')
+    axes[1, 0].set_title('Spatial Activity Map')
+    axes[1, 0].axis('off')
+    fig.colorbar(im3, ax=axes[1, 0], shrink=0.7)
+    
+    # Plot 4: Active connections map (count of non-zero weights at each location)
+    active_connections = np.sum(masked_weights != 0, axis=0).reshape(image_shape)
+    im4 = axes[1, 1].imshow(active_connections, cmap='hot', interpolation='nearest')
+    axes[1, 1].set_title('Active Connections Count')
+    axes[1, 1].axis('off')
+    fig.colorbar(im4, ax=axes[1, 1], shrink=0.7)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Print some statistics
+    print(f"\n=== Full Model Dendritic Statistics ===")
+    print(f"Total parameters: {dendrite_weights.size}")
+    print(f"Active parameters: {np.sum(dendrite_mask)}")
+    print(f"Sparsity: {1 - np.sum(dendrite_mask) / dendrite_mask.size:.4f}")
+    print(f"Mean active weight magnitude: {np.mean(magnitudes[magnitudes > 0]):.6f}")
+    print(f"Max weight magnitude: {np.max(magnitudes):.6f}")
+    print(f"Min non-zero weight magnitude: {np.min(magnitudes[magnitudes > 0]):.6f}")
+
+
 def print_network_entropy(model, image_shape=(28, 28)):
     """
     Calculate and print entropy values for all neurons in the dendritic layer.

@@ -14,7 +14,7 @@ except (ImportError, Exception) as e:
 from matplotlib import pyplot as plt
 from modules import Adam, CrossEntropy, LeakyReLU, Sequential
 from utils import load_mnist_data, load_cifar10_data
-from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image, print_network_entropy, train, train_one_model
+from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image, print_network_entropy, train, train_one_model, plot_dendritic_weights_full_model
 
 
 class LinearLayer:
@@ -222,8 +222,10 @@ class DendriticLayer:
                 # resample_bool = self.update_steps >= cp.exp((self.num_mask_updates + 20) / 10 ) + 20
             else:
                 # resample_bool = self.update_steps >= 20 + 10 * self.num_mask_updates
-                resample_bool = self.update_steps >= self.steps_to_resample and self.num_mask_updates < 1700
-                
+                resample_bool = self.update_steps >= self.steps_to_resample 
+                # and self.num_mask_updates < 500
+                # if self.update_steps == 500:
+                    # print("LAST UPDATE")
             if resample_bool:
                 # reset step counter
                 self.update_steps = 0
@@ -402,14 +404,14 @@ def main():
     import numpy as np
     rng = np.random.default_rng(2421223)
     # for repoducability
-    cp.random.seed(242122223)
+    cp.random.seed(123123)
 
     # data config
     dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
     subset_size = None
 
     # config
-    n_epochs = 50 # 15 MNIST, 20 Fashion-MNIST
+    n_epochs = 24 # 15 MNIST, 20 Fashion-MNIST
     lr = 0.003  # 0.003
     v_lr = 0.003  # 0.015 - SGD
     b_lr = 0.003  # 0.015 - SGD
@@ -476,6 +478,7 @@ def main():
         batch_size=batch_size,
     )
     
+    plot_dendritic_weights_full_model(model, X_test[0])
     # for i in range(10):
         # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
     
@@ -569,8 +572,7 @@ if __name__ == "__main__":
 
 
     # # %%
-    for i in range(10):
-        plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
+    plot_dendritic_weights_full_model(model, X_test[0])
 
 if __name__ == "__main__":
     main()
