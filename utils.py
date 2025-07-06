@@ -14,7 +14,7 @@ import numpy as np
 
 
 def load_mnist_data(
-    rng, dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None, shuffle=False
+    rng=None, dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None, shuffle=False
 ):
     """
     Download and load the MNIST or Fashion-MNIST dataset.

@@ -188,7 +188,7 @@ class DendriticLayer:
         self.dendrite_x = x
         x = x @ self.dendrite_W.T
         # + self.dendrite_b
-        x = self.dendrite_activation(x)
+        # x = self.dendrite_activation(x)
 
         # soma forward pass
         self.soma_x = x
@@ -205,13 +205,13 @@ class DendriticLayer:
         # self.soma_db = grad.sum(axis=0)
         # soma_grad = grad @ self.soma_W
 
-        soma_grad = self.dendrite_activation.backward(grad)
+        # soma_grad = self.dendrite_activation.backward(grad)
 
         # dendrite back pass
         # self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
         self.dendrite_dW = grad.T @ self.dendrite_x * self.dendrite_mask
-        self.dendrite_db = soma_grad.sum(axis=0)
-        dendrite_grad = soma_grad @ self.dendrite_W
+        self.dendrite_db = grad.sum(axis=0)
+        dendrite_grad = grad @ self.dendrite_W
 
         if self.synaptic_resampling:
             self.update_steps += 1
