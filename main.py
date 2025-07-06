@@ -402,7 +402,7 @@ def main():
     pass
 
 # for repoducability
-cp.random.seed(123123)
+cp.random.seed(12123)
 
 # data config
 dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
@@ -410,9 +410,9 @@ subset_size = None
 
 # config
 n_epochs = 24 # 15 MNIST, 20 Fashion-MNIST
-lr = 0.003  # 0.003
-v_lr = 0.0001  # 0.015 - SGD
-b_lr = 0.003  # 0.015 - SGD
+lr = 0.002  # 0.003
+v_lr = 0.002  # 0.015 - SGD
+b_lr = 0.002  # 0.015 - SGD
 weight_decay = 0.01 #0.001
 batch_size = 256
 n_classes = 10
@@ -426,7 +426,7 @@ else:
 
 # dendriticmodel config
 n_dendrite_inputs = 16
-n_dendrites = 16
+n_dendrites = 8
 n_neurons = 10
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
@@ -453,7 +453,7 @@ model = Sequential(
             strategy=strategy,
             synaptic_resampling=True,
             percentage_resample=0.25,
-            steps_to_resample=100,
+            steps_to_resample=200,
             scaling_resampling_percentage=False,
             dynamic_steps_size=False,
         ),
@@ -495,8 +495,8 @@ b_model = Sequential(
             strategy=strategy,
             synaptic_resampling=False,
         ),
-        LeakyReLU(),
-        LinearLayer(n_neurons, n_classes),
+        # LeakyReLU(),
+        # LinearLayer(n_neurons, n_classes),
     ]
 )
 b_optimiser = Adam(b_model.params(), b_criterion, lr=b_lr, weight_decay=weight_decay)
@@ -525,10 +525,10 @@ print("Vanilla model")
 
 # raise Exception("Stop here")
 
-print("\n\n")
+print("\n")
 print(f"number of mask updates: {model.layers[0].num_mask_updates}")
 # print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
-print("\n\n")
+print("\n")
 
 compare_models(
     model,
@@ -577,12 +577,24 @@ plot_dendritic_weights_full_model(model, X_test[0])
 #     main()
 
 # %%
+idx = 1
+sample_1 = X_test[idx]
+true_label = cp.argmax(y_test[idx])
+predictions = model(sample_1)
 
-sample_1 = X_test[0]
-true_label = y_test[0]
-predicted_label = model.forward(sample_1)
+predicted_label = cp.argmax(predictions)
+print(f"raw prediction: {predictions}")
+print(f"sample 1 predicted label: {predicted_label}, true label: {true_label}")
 
-print(f"true label: {true_label}")
-print(f"predicted label: {predicted_label}")
+plot_dendritic_weights(model, X_test[idx], neuron_idx=2)
+plot_dendritic_weights_single_image(model, X_test[idx], neuron_idx=2)
+
+
+
+
+
+
+
+
 
 # %%

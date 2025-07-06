@@ -246,16 +246,16 @@ cp.random.seed(1902)
 dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
 
 # config
-n_epochs = 45 # 15 MNIST, 20 Fashion-MNIST
-lr = 0.001  # 0.003
+n_epochs = 30 # 15 MNIST, 20 Fashion-MNIST
+lr = 0.002  # 0.003
 weight_decay = 0.01 #0.001
 batch_size = 256
-grad_clip = 10.0
+grad_clip = 100.0
 
 in_dim = 28 * 28  # Image dimensions (28x28 MNIST, 32x32x3 CIFAR-10)
 
 # dendriticmodel config
-n_dendrite_inputs = 100
+n_dendrite_inputs = 18
 n_dendrites = 10  # 10 classes for MNIST
 X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset)
 
@@ -266,8 +266,8 @@ model = MinimalDendriticLayer(
     n_dendrite_inputs=n_dendrite_inputs,
     synaptic_resampling=True,
     percentage_resample=0.25,
-    steps_to_resample=1,
-    stop_after_n_mask_updates=8000,
+    steps_to_resample=100,
+    stop_after_n_mask_updates=60,
 )
 optimiser = Adam(model, criterion, lr=lr, weight_decay=weight_decay, grad_clip=grad_clip)
 
