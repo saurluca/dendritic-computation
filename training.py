@@ -101,9 +101,6 @@ def train(
             accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
             test_losses.append(float(epoch_test_loss))
             test_accuracy.append(float(epoch_test_accuracy))
-            
-            if epoch % 10 == 0:
-                print(f"Epoch {epoch} - Train Loss: {train_losses[-1]} - Test Loss: {test_losses[-1]} - Train Accuracy: {accuracy[-1]} - Test Accuracy: {test_accuracy[-1]}")
     return train_losses, accuracy, test_losses, test_accuracy, variance_of_weights
 
 
@@ -112,7 +109,7 @@ def evaluate(
     y_test,
     model,
     criterion,
-    batch_size=256,
+    batch_size=1024,
 ):
     n_samples = len(X_test)
     test_loss = 0.0
@@ -161,7 +158,6 @@ def train_one_model(
     
     print(f"number of mask updates: {model.layers[0].num_mask_updates}")
 
-    
     # plot train and test accuracy
     plt.plot(train_losses, label="Train Loss", color="blue")
     plt.plot(test_losses, label="Test Loss", color="red")
@@ -649,7 +645,7 @@ def plot_dendritic_weights_full_model(model, input_image, image_shape=(28, 28)):
     im4 = axes[1, 1].imshow(active_connections, cmap='hot', interpolation='nearest')
     axes[1, 1].set_title('Active Connections Count')
     axes[1, 1].axis('off')
-    fig.colorbar(im4, ax=axes[1, 1], shrink=0.7)
+    fig.colorbar(im4, ax=axes[1, 1], shrink=0.5)
     
     plt.tight_layout()
     plt.show()

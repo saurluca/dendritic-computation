@@ -143,6 +143,8 @@ class SGD:
                 layer.dendrite_b -= update[1]
                 layer.soma_W -= update[2]
                 layer.soma_b -= update[3]
+                # Apply dendrite mask to ensure sparsity is maintained
+                layer.dendrite_W = layer.dendrite_W * layer.dendrite_mask
             else:  # LinearLayer
                 update[0] = self.lr * layer.dW + self.momentum * update[0]
                 update[1] = self.lr * layer.db + self.momentum * update[1]
@@ -248,6 +250,10 @@ class Adam:
                 # Update parameters
                 param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps)
                 param -= self.lr * self.weight_decay * param
+
+            # Apply dendrite mask to ensure sparsity is maintained
+            if hasattr(layer, "dendrite_W"):
+                layer.dendrite_W = layer.dendrite_W * layer.dendrite_mask
 
     def __call__(self):
         return self.step()
