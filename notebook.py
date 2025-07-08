@@ -451,7 +451,6 @@ class DendriticLayer:
 def load_mnist_data(
     dataset="mnist",
     subset_size=None,
-    shuffle=False,
 ):
     """
     Download and load the MNIST or Fashion-MNIST dataset.
@@ -530,7 +529,7 @@ def load_mnist_data(
     return X_train, y_train, X_test, y_test
 
 
-def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
+def create_batches(X, y, batch_size=128, shuffle=True, drop_last=False):
     n_samples = len(X)
     # shuffle data
     if shuffle:
@@ -571,7 +570,7 @@ def train(
             train_loss = 0.0
             correct_pred = 0.0
             for batch_idx, (X, target) in enumerate(
-                create_batches(X_train, y_train, batch_size, shuffle=True)
+                create_batches(X_train, y_train, batch_size, shuffle=True, drop_last=True)
             ):
                 # forward pass
                 pred = model(X)
@@ -623,7 +622,7 @@ def evaluate(
     correct_pred = 0.0
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
     for X, target in create_batches(
-        X_test, y_test, batch_size, shuffle=False, drop_last=False
+        X_test, y_test, batch_size, shuffle=False
     ):
         # forward pass
         pred = model(X)
@@ -644,8 +643,6 @@ def plot_dendritic_weights_single_image(
     Plots the aggregated magnitude of all dendritic weights of a single neuron on one image.
     Color indicates the sum of magnitudes at each location.
     """
-
-
     def to_numpy(arr):
         if hasattr(arr, "get"):
             return arr.get()
@@ -674,7 +671,6 @@ def plot_dendritic_weights_single_image(
 
     dendrite_weights = to_numpy(dendritic_layer.dendrite_W[start_idx:end_idx])
     dendrite_mask = to_numpy(dendritic_layer.dendrite_mask[start_idx:end_idx])
-
 
     masked_weights = dendrite_weights * dendrite_mask
     input_image_np = to_numpy(input_image)
@@ -820,20 +816,28 @@ v_lr = 0.002  # 0.015 - SGD
 b_lr = 0.002  # 0.015 - SGD
 weight_decay = 0.01  # 0.001
 batch_size = 256
-n_classes = 10
+grad_clip = 0.1
 
 in_dim = 28 * 28  # Image dimensions (28x28 MNIST)
+n_classes = 10
 
+# dendritic model config
+n_dendrite_inputs = 31  # 31
+n_dendrites = 23  # 23
+n_neurons = 10  # 10
 
-# dendriticmodel config
-n_dendrite_inputs = 64  # 31
-n_dendrites = 32  # 23
-n_neurons = 512  # 10
+# vanilla model config
+hidden_dim = 10
 
-X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset)
+model_name_1 = "Synaptic Resampling"
+model_name_2 = "Base Dendritic"
+model_name_3 = "Vanilla ANN"
 
-print("Preparing model...")
-criterion = CrossEntropy()
+criterion_1 = CrossEntropy()
+criterion_2 = CrossEntropy()
+criterion_3 = CrossEntropy()
+
+# new model with synaptic resampling
 model_1 = Sequential(
     [
         DendriticLayer(
@@ -851,12 +855,7 @@ model_1 = Sequential(
         LinearLayer(n_neurons, n_classes),
     ]
 )
-optimiser_1 = Adam(
-    model_1.params(), criterion, lr=lr, weight_decay=weight_decay, grad_clip=0.1
-)
-
-# baseline dendritic model
-criterion_2 = CrossEntropy()
+# baseline dendritic model without synaptic resampling
 model_2 = Sequential(
     [
         DendriticLayer(
@@ -870,40 +869,28 @@ model_2 = Sequential(
         LinearLayer(n_neurons, n_classes),
     ]
 )
-optimiser_2 = Adam(model_2.params(), criterion_2, lr=b_lr, weight_decay=weight_decay)
-
-# vanilla model
-criterion_3 = CrossEntropy()
+# vanilla ANN model
 model_3 = Sequential(
     [
-        LinearLayer(in_dim, 512),
+        LinearLayer(in_dim, hidden_dim),
         LeakyReLU(),
-        LinearLayer(512, 512),
+        LinearLayer(hidden_dim, hidden_dim),
         LeakyReLU(),
-        LinearLayer(512, n_classes),
+        LinearLayer(hidden_dim, n_classes),
     ]
 )
-optimiser_3 = Adam(model_3.params(), criterion_3, lr=v_lr, weight_decay=weight_decay)
+optimiser_1 = Adam(model_1.params(), criterion_1, lr=lr, weight_decay=weight_decay, grad_clip=grad_clip)
+optimiser_2 = Adam(model_2.params(), criterion_2, lr=b_lr, weight_decay=weight_decay, grad_clip=grad_clip)
+optimiser_3 = Adam(model_3.params(), criterion_3, lr=v_lr, weight_decay=weight_decay, grad_clip=grad_clip)
 
 print(f"number of model_1 params: {model_1.num_params()}")
 print(f"number of model_2 params: {model_2.num_params()}")
 print(f"number of model_3 params: {model_3.num_params()}")
 
-print("Dendritic model")
-# print_network_entropy(model)
-print("Vanilla model")
-# print_network_entropy(v_model)
+# load data
+X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset)
 
-# raise Exception("Stop here")
-
-print("\n")
-print(f"number of mask updates: {model.layers[0].num_mask_updates}")
-# print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
-print("\n")
 print(f"Training {model_name_1} model...")
-
-
-
 (
     train_losses_1,
     train_accuracy_1,
@@ -915,16 +902,11 @@ print(f"Training {model_name_1} model...")
     X_test,
     y_test,
     model_1,
-    criterion,
+    criterion_1,
     optimiser_1,
     n_epochs,
     batch_size,
 )
-print(f"train loss {model_name_1} model {round(train_losses_1[-1], 4)}")
-print(
-    f"train accuracy {model_name_1} model {round(train_accuracy_1[-1] * 100, 1)}%"
-)
-print(f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}%")
 
 print(f"Training {model_name_2} model...")
 (
@@ -938,17 +920,11 @@ print(f"Training {model_name_2} model...")
     X_test,
     y_test,
     model_2,
-    criterion,
+    criterion_2,
     optimiser_2,
     n_epochs,
     batch_size,
 )
-
-print(f"train loss {model_name_2} model {round(train_losses_2[-1], 4)}")
-print(
-    f"train accuracy {model_name_2} model {round(train_accuracy_2[-1] * 100, 1)}%"
-)
-print(f"test accuracy {model_name_2} model {round(test_accuracy_2[-1] * 100, 1)}%")
 
 print(f"Training {model_name_3} model...")
 (
@@ -963,52 +939,11 @@ print(f"Training {model_name_3} model...")
     X_test,
     y_test,
     model_3,
-    criterion,
+    criterion_3,
     optimiser_3,
     n_epochs,
     batch_size,
-    track_variance,
 )
-
-# plot variance of grads
-if track_variance:
-    # Handle variance_of_weights which is a list of lists (one list per batch, containing variances per layer)
-    # Compute mean variance across all layers for each batch
-    variance_weights_1_np = []
-    for batch_variances in variance_of_weights_1:
-        # batch_variances is a list of variances from each layer
-        # Convert each variance to float and compute mean
-        layer_variances = [
-            float(var.get()) if hasattr(var, "get") else float(var)
-            for var in batch_variances
-        ]
-        variance_weights_1_np.append(sum(layer_variances) / len(layer_variances))
-
-    variance_weights_2_np = []
-    for batch_variances in variance_of_weights_2:
-        # batch_variances is a list of variances from each layer
-        # Convert each variance to float and compute mean
-        layer_variances = [
-            float(var.get()) if hasattr(var, "get") else float(var)
-            for var in batch_variances
-        ]
-        variance_weights_2_np.append(sum(layer_variances) / len(layer_variances))
-
-    plt.plot(
-        variance_weights_1_np,
-        label=f"{model_name_1} Variance of Weights",
-        color="green",
-        linestyle="--",
-    )
-    plt.plot(
-        variance_weights_2_np,
-        label=f"{model_name_2} Variance of Weights",
-        color="blue",
-        linestyle="--",
-    )
-    plt.title("Variance of Weights over epochs")
-    plt.legend()
-    plt.show()
 
 # plot accuracy of vanilla model vs dendritic model
 plt.plot(
@@ -1041,17 +976,6 @@ plt.plot(test_losses_3, label=f"{model_name_3} Test", color="red")
 plt.title("Loss over epochs")
 plt.legend()
 plt.show()
-
-# print final weight stats of dendritc layer
-# weights_1 = cp.abs(model_1.params()[0].dendrite_W)
-# weights_2 = cp.abs(model_2.params()[0].dendrite_W)
-
-# print(f"weights_1: {weights_1.shape}")
-# print(f"weights_2: {weights_2.shape}")
-# print(f"mean weights_1: {cp.mean(weights_1)}")
-# print(f"mean weights_2: {cp.mean(weights_2)}")
-# print(f"std weights_1: {cp.std(weights_1)}")
-# print(f"std weights_2: {cp.std(weights_2)}")
 
 print(
     f"train loss {model_name_1} model {round(train_losses_1[-1], 4)} vs {model_name_2} {round(train_losses_2[-1], 4)} vs {model_name_3} {round(train_losses_3[-1], 4)}"
