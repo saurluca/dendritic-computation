@@ -14,7 +14,13 @@ import numpy as np
 
 
 def load_mnist_data(
-    rng=None, dataset="mnist", normalize=True, flatten=True, one_hot=True, subset_size=None, shuffle=False
+    rng=None,
+    dataset="mnist",
+    normalize=True,
+    flatten=True,
+    one_hot=True,
+    subset_size=None,
+    shuffle=False,
 ):
     """
     Download and load the MNIST or Fashion-MNIST dataset.
@@ -46,13 +52,13 @@ def load_mnist_data(
     data = fetch_openml(
         dataset_name, version=1, as_frame=False, parser="auto", cache=True
     )
-    
+
     # Shuffle both data and labels together to maintain correspondence
     n_samples = len(data.data)
     if shuffle:
         shuffle_indices = np.arange(n_samples)
         rng.shuffle(shuffle_indices)
-    
+
     X, y = data.data, data.target.astype(int)
     if shuffle:
         X, y = X[shuffle_indices], y[shuffle_indices]
@@ -66,23 +72,21 @@ def load_mnist_data(
         # Convert to float32 first
         X_train = X_train.astype(np.float32) / 255.0
         X_test = X_test.astype(np.float32) / 255.0
-        
+
         # Calculate global mean and std from training data
         mean_val = X_train.mean()
         std_val = X_train.std()
-        
+
         # Standardize to mean=0, std=1
         X_train = (X_train - mean_val) / std_val
         X_test = (X_test - mean_val) / std_val
-        
+
         # Convert to CuPy arrays
         X_train = cp.array(X_train)
         X_test = cp.array(X_test)
     else:
         X_train = cp.array(X_train)
         X_test = cp.array(X_test)
-        
-        
 
     # Flatten images if needed (they're already flattened in mnist_784)
     if not flatten:
@@ -117,13 +121,10 @@ def load_mnist_data(
     return X_train, y_train, X_test, y_test
 
 
-def load_cifar10_data(
-    rng, normalize=True, flatten=True, one_hot=True, subset_size=None
-):
+def load_cifar10_data(normalize=True, flatten=True, one_hot=True, subset_size=None):
     """
     Download and load the CIFAR-10 dataset.
     Args:
-        rng: Random number generator for shuffling data
         normalize (bool): If True, normalize pixel values to [0, 1]
         flatten (bool): If True, keep images as 3072-dimensional vectors.
                         If False, reshape to (batch, 3, 32, 32).
@@ -139,35 +140,29 @@ def load_cifar10_data(
     data = fetch_openml(
         dataset_name, version=1, as_frame=False, parser="auto", cache=True
     )
-    
-    # Shuffle both data and labels together to maintain correspondence
-    n_samples = len(data.data)
-    shuffle_indices = np.arange(n_samples)
-    rng.shuffle(shuffle_indices)
-    
-    X, y = data.data[shuffle_indices], data.target.astype(int)[shuffle_indices]
+
+    X, y = data.data, data.target.astype(int)
 
     print("finished downloading data")
 
     # Split into train and test (50k train, 10k test)
     X_train, X_test = X[:50000], X[50000:]
     y_train, y_test = y[:50000], y[50000:]
-    
-   
+
     # Normalize pixel values and convert to GPU arrays
     if normalize:
         # Convert to float32 first
         X_train = X_train.astype(np.float32) / 255.0
         X_test = X_test.astype(np.float32) / 255.0
-        
+
         # Calculate global mean and std from training data
         mean_val = X_train.mean()
         std_val = X_train.std()
-        
+
         # Standardize to mean=0, std=1
         X_train = (X_train - mean_val) / std_val
         X_test = (X_test - mean_val) / std_val
-        
+
         # Convert to CuPy arrays
         X_train = cp.array(X_train)
         X_test = cp.array(X_test)

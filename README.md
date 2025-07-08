@@ -4,6 +4,19 @@ Explore dendritic trees as computational units beyond passive integration.
 Implement sparse "dendrite networks" where hidden units represent dendrites connected to
 specific spatial patches or random subsets of inputs, testing how this structural prior affects
 learning.
+Orginal idea is to resample the dendritic connections during learning. Significantly improving performance for a small number of parameters.
+
+## Results
+
+Solved MNIST with minimal number of parameters
+MNIST: 
+accuracy - num params - synapses / dendrites / somas
+
+- 81 - 180 - 18 / 10 / .
+- 90 - 600 - 60 / 10 / .
+- 94.7 - 2890 - 16 / 16 / 10
+
+
 
 ## Sources
 
@@ -14,6 +27,8 @@ Neuroscience, 28, 503-532.
 
 2. Chavlis, S. and Poirazi, P., 2025. Dendrites endow artificial neural networks with
 accurate, robust and parameter-efficient learning. Nature Communications, 16(1), p.943.
+
+
 
 ## Ideas
 

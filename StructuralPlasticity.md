@@ -53,12 +53,11 @@ Current implemnation has same training time but better results.
 
 ## Low params
 
-
 MNIST: 
-- 82% - 50 - 2/1/10
-- 87% - 60 params - 3/1/10
-- 87.7% - 20 params, removing all biases and soma_w - 2/10
-- 95% - 840 params - 8/8/10
+acc - num params - synapses / dendrites / somas
+- 81 - 180 - 18 / 10 / .
+- 90 - 600 - 60 / 10 / .
+- 94.7 - 2890 - 16 / 16 / 10
 
 
 

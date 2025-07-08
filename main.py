@@ -14,7 +14,15 @@ except (ImportError, Exception) as e:
 from matplotlib import pyplot as plt
 from modules import Adam, CrossEntropy, LeakyReLU, Sequential
 from utils import load_mnist_data, load_cifar10_data
-from training import compare_models, plot_dendritic_weights, plot_dendritic_weights_single_image, print_network_entropy, train, train_one_model, plot_dendritic_weights_full_model
+from training import (
+    compare_models,
+    plot_dendritic_weights,
+    plot_dendritic_weights_single_image,
+    print_network_entropy,
+    train,
+    train_one_model,
+    plot_dendritic_weights_full_model,
+)
 
 
 class LinearLayer:
@@ -41,7 +49,7 @@ class LinearLayer:
 
     def num_params(self):
         return self.W.size + self.b.size
-    
+
     def var_params(self):
         return cp.var(self.W) + cp.var(self.b)
 
@@ -145,7 +153,6 @@ class DendriticLayer:
         # mask out unneeded weights, thus making weights sparse
         self.dendrite_W = self.dendrite_W * self.dendrite_mask
 
-    
     def create_local_receptive_field_mask(self):
         image_size = int(cp.sqrt(self.in_dim))
 
@@ -154,7 +161,9 @@ class DendriticLayer:
         center_col = cp.random.randint(0, image_size)
 
         # The standard deviation is the square root of n_dendrite_inputs
-        std_dev = cp.power(self.n_dendrite_inputs, self.local_receptive_field_std_dev_factor)
+        std_dev = cp.power(
+            self.n_dendrite_inputs, self.local_receptive_field_std_dev_factor
+        )
 
         # Use a set to store unique indices, starting with the center pixel
         center_idx = (center_row * image_size + center_col).item()
@@ -179,7 +188,7 @@ class DendriticLayer:
 
         input_idx = cp.array(list(sampled_indices), dtype=int)
         return input_idx
-    
+
     def forward(self, x):
         # dendrites forward pass
         self.dendrite_x = x
@@ -216,15 +225,15 @@ class DendriticLayer:
                 # resample_bool = self.update_steps >= cp.exp((self.num_mask_updates + 20) / 10 ) + 20
             else:
                 # resample_bool = self.update_steps >= 20 + 10 * self.num_mask_updates
-                resample_bool = self.update_steps >= self.steps_to_resample 
+                resample_bool = self.update_steps >= self.steps_to_resample
                 # and self.num_mask_updates < 500
                 # if self.update_steps == 500:
-                    # print("LAST UPDATE")
+                # print("LAST UPDATE")
             if resample_bool:
                 # reset step counter
                 self.update_steps = 0
                 self.resample_dendrites()
-    
+
         # Ensure dendrite weights stay masked to maintain constant synapse count
         self.dendrite_W = self.dendrite_W * self.dendrite_mask
 
@@ -236,12 +245,14 @@ class DendriticLayer:
         n_to_resample = dendrites_to_resample.size
 
         # --- 1. Find the center of each unique dendrite's receptive field ---
-        unique_dendrites, inverse_indices = cp.unique(dendrites_to_resample, return_inverse=True)
-        
+        unique_dendrites, inverse_indices = cp.unique(
+            dendrites_to_resample, return_inverse=True
+        )
+
         # Get all connections for the unique dendrites that need resampling
         dendrite_masks = self.dendrite_mask[unique_dendrites, :]
         connected_indices = cp.where(dendrite_masks)
-        
+
         # `connected_indices[0]` maps an entry to an index in `unique_dendrites`
         # `connected_indices[1]` is the input feature index (1D)
         unique_dendrite_map = connected_indices[0]
@@ -250,11 +261,15 @@ class DendriticLayer:
         # Convert 1D input indices to 2D coordinates to calculate centers
         rows_2d = input_feature_indices // image_size
         cols_2d = input_feature_indices % image_size
-        
+
         # Calculate the mean row and column for each unique dendrite (vectorized groupby)
         dendrite_counts = cp.bincount(unique_dendrite_map)
-        center_rows = cp.bincount(unique_dendrite_map, weights=rows_2d) / dendrite_counts
-        center_cols = cp.bincount(unique_dendrite_map, weights=cols_2d) / dendrite_counts
+        center_rows = (
+            cp.bincount(unique_dendrite_map, weights=rows_2d) / dendrite_counts
+        )
+        center_cols = (
+            cp.bincount(unique_dendrite_map, weights=cols_2d) / dendrite_counts
+        )
 
         # --- 2. Map centers back to the original `dendrites_to_resample` list ---
         # This gives us a center for each connection we need to create
@@ -262,8 +277,10 @@ class DendriticLayer:
         resample_center_cols = center_cols[inverse_indices]
 
         # --- 3. Sample new connections from a Gaussian distribution around the centers ---
-        std_dev = cp.power(self.n_dendrite_inputs, self.local_receptive_field_std_dev_factor)
-        
+        std_dev = cp.power(
+            self.n_dendrite_inputs, self.local_receptive_field_std_dev_factor
+        )
+
         row_offsets = cp.random.normal(loc=0.0, scale=std_dev, size=n_to_resample)
         col_offsets = cp.random.normal(loc=0.0, scale=std_dev, size=n_to_resample)
 
@@ -276,7 +293,7 @@ class DendriticLayer:
 
         # Convert 2D coordinates back to 1D indices
         new_input_indices = new_rows * image_size + new_cols
-        
+
         return new_input_indices.astype(int)
 
     def resample_dendrites(self):
@@ -292,13 +309,17 @@ class DendriticLayer:
 
             w_abs = cp.abs(self.dendrite_W)
             # Sigmoid-based pruning probability
-            prune_probabilities = P_MAX_PRUNE / (1 + cp.exp((w_abs - THRESHOLD_W) / STEEPNESS))
-            
+            prune_probabilities = P_MAX_PRUNE / (
+                1 + cp.exp((w_abs - THRESHOLD_W) / STEEPNESS)
+            )
+
             # Probabilistically decide which connections to prune.
-            should_prune_mask = (cp.random.random(self.dendrite_W.shape) < prune_probabilities) & (self.dendrite_mask == 1)
-            
+            should_prune_mask = (
+                cp.random.random(self.dendrite_W.shape) < prune_probabilities
+            ) & (self.dendrite_mask == 1)
+
             rows_to_remove, cols_to_remove = cp.where(should_prune_mask)
-            
+
             if rows_to_remove.size == 0:
                 # print("num of dendrite successful swaps: 0")
                 return
@@ -312,7 +333,9 @@ class DendriticLayer:
             else:
                 resampling_percentage = self.percentage_resample
 
-            n_to_remove_per_dendrite = int(self.n_dendrite_inputs * resampling_percentage)
+            n_to_remove_per_dendrite = int(
+                self.n_dendrite_inputs * resampling_percentage
+            )
             if n_to_remove_per_dendrite == 0:
                 return
 
@@ -326,17 +349,21 @@ class DendriticLayer:
 
             # Create corresponding row indices and flatten for the swap logic
             rows_to_remove = cp.arange(num_dendrites)[:, cp.newaxis]
-            removed_dendrite_indices = rows_to_remove.repeat(n_to_remove_per_dendrite, axis=1).flatten()
+            removed_dendrite_indices = rows_to_remove.repeat(
+                n_to_remove_per_dendrite, axis=1
+            ).flatten()
             removed_input_indices = cols_to_remove.flatten()
 
         n_connections_to_remove = removed_dendrite_indices.size
-        
+
         # --- Part 2: One-shot Resampling Attempt ---
         num_inputs_per_dendrite = self.dendrite_x.shape[1]
-        
+
         # Decide whether to use LRF or random resampling
-        use_lrf = (self.strategy == "local-receptive-fields" and 
-                   cp.random.random() < self.lrf_resampling_prob)
+        use_lrf = (
+            self.strategy == "local-receptive-fields"
+            and cp.random.random() < self.lrf_resampling_prob
+        )
 
         if use_lrf and n_connections_to_remove > 0:
             newly_selected_input_indices = self._lrf_resample(removed_dendrite_indices)
@@ -346,13 +373,22 @@ class DendriticLayer:
             )
 
         # --- Part 3: Conflict Detection ---
-        conflict_with_existing = self.dendrite_mask[removed_dendrite_indices, newly_selected_input_indices] == 1
-        
+        conflict_with_existing = (
+            self.dendrite_mask[removed_dendrite_indices, newly_selected_input_indices]
+            == 1
+        )
+
         num_dendrites = self.dendrite_mask.shape[0]
-        proposed_flat_indices = removed_dendrite_indices * num_inputs_per_dendrite + newly_selected_input_indices
-        counts = cp.bincount(proposed_flat_indices.astype(int), minlength=num_dendrites * num_inputs_per_dendrite)
+        proposed_flat_indices = (
+            removed_dendrite_indices * num_inputs_per_dendrite
+            + newly_selected_input_indices
+        )
+        counts = cp.bincount(
+            proposed_flat_indices.astype(int),
+            minlength=num_dendrites * num_inputs_per_dendrite,
+        )
         is_duplicate_flat = counts[proposed_flat_indices.astype(int)] > 1
-        
+
         is_problematic = conflict_with_existing | is_duplicate_flat
         is_successful = ~is_problematic
 
@@ -365,20 +401,21 @@ class DendriticLayer:
             self.dendrite_mask[dendrites_to_swap, old_inputs_to_remove] = 0
             self.dendrite_mask[dendrites_to_swap, new_inputs_to_add] = 1
 
-            self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = (
-                cp.random.randn(dendrites_to_swap.shape[0]) * cp.sqrt(2.0 / self.in_dim)
-            )
-        
+            self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = cp.random.randn(
+                dendrites_to_swap.shape[0]
+            ) * cp.sqrt(2.0 / self.in_dim)
+
         self.dendrite_W = self.dendrite_W * self.dendrite_mask
-        
+
         # print(f"num of dendrite successful swaps: {dendrites_to_swap.size}")
-        
+
         self.num_mask_updates += 1
-        
+
         # --- Part 5: Verification ---
         connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
-        assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
+        assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), (
             f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
+        )
 
     def num_params(self):
         print(
@@ -390,9 +427,14 @@ class DendriticLayer:
             + cp.sum(self.soma_mask)
             + self.soma_b.size
         )
-        
+
     def var_params(self):
-        return cp.var(self.dendrite_W) + cp.var(self.dendrite_b) + cp.var(self.soma_W) + cp.var(self.soma_b)
+        return (
+            cp.var(self.dendrite_W)
+            + cp.var(self.dendrite_b)
+            + cp.var(self.soma_W)
+            + cp.var(self.soma_b)
+        )
 
     def __call__(self, x):
         return self.forward(x)
@@ -401,19 +443,20 @@ class DendriticLayer:
 def main():
     pass
 
+
 # for repoducability
 cp.random.seed(12123)
 
 # data config
-dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
+dataset = "cifar10"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
 
 # config
-n_epochs = 24 # 15 MNIST, 20 Fashion-MNIST
+n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.002  # 0.003
 v_lr = 0.002  # 0.015 - SGD
 b_lr = 0.002  # 0.015 - SGD
-weight_decay = 0.01 #0.001
+weight_decay = 0.01  # 0.001
 batch_size = 256
 n_classes = 10
 
@@ -425,9 +468,9 @@ else:
     raise ValueError(f"Invalid dataset: {dataset}")
 
 # dendriticmodel config
-n_dendrite_inputs = 16
-n_dendrites = 8
-n_neurons = 10
+n_dendrite_inputs = 32  # 31
+n_dendrites = 16  # 23
+n_neurons = 10  # 10
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
 print("\nRUN NAME: synaptic resampling FALSE\n")
@@ -437,9 +480,7 @@ if dataset in ["mnist", "fashion-mnist"]:
         dataset=dataset, subset_size=subset_size
     )
 elif dataset == "cifar10":
-    X_train, y_train, X_test, y_test = load_cifar10_data(
-        subset_size=subset_size
-    )
+    X_train, y_train, X_test, y_test = load_cifar10_data(subset_size=subset_size)
 
 print("Preparing model...")
 criterion = CrossEntropy()
@@ -453,148 +494,140 @@ model = Sequential(
             strategy=strategy,
             synaptic_resampling=True,
             percentage_resample=0.25,
-            steps_to_resample=200,
+            steps_to_resample=128,
             scaling_resampling_percentage=False,
             dynamic_steps_size=False,
         ),
-        # LeakyReLU(),
-        # LinearLayer(n_neurons, n_classes),
+        LeakyReLU(),
+        LinearLayer(n_neurons, n_classes),
     ]
 )
-optimiser = Adam(model.params(), criterion, lr=lr, weight_decay=weight_decay, grad_clip=0.1)
-
-# train_one_model(
-#     X_train,
-#     y_train,
-#     X_test,
-#     y_test,
-#     model,
-#     criterion,
-#     optimiser,
-#     n_epochs=n_epochs,
-#     batch_size=batch_size,
-# )
-
-# plot_dendritic_weights_full_model(model, X_test[0])
-# for i in range(10):
-    # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
-
-sum_of_synapses = cp.count_nonzero(model.layers[0].dendrite_W)
-print(f"sum of synapses: {sum_of_synapses}")
-
-
-# baseline dendritic model
-b_criterion = CrossEntropy()
-b_model = Sequential(
-    [
-        DendriticLayer(
-            in_dim,
-            n_neurons,
-            n_dendrite_inputs=n_dendrite_inputs,
-            n_dendrites=n_dendrites,
-            strategy=strategy,
-            synaptic_resampling=False,
-        ),
-        # LeakyReLU(),
-        # LinearLayer(n_neurons, n_classes),
-    ]
+optimiser = Adam(
+    model.params(), criterion, lr=lr, weight_decay=weight_decay, grad_clip=0.1
 )
-b_optimiser = Adam(b_model.params(), b_criterion, lr=b_lr, weight_decay=weight_decay)
 
-# vanilla model 
-v_criterion = CrossEntropy()
-v_model = Sequential(
-    [
-        LinearLayer(in_dim, 10),
-        # LeakyReLU(),
-        # LinearLayer(12, 10),
-        # LeakyReLU(),
-        # LinearLayer(10, n_classes),
-    ]
-)
-v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
-
-print(f"number of model_1 params: {model.num_params()}")
-print(f"number of model_2 params: {b_model.num_params()}")
-print(f"number of model_3 params: {v_model.num_params()}")
-
-print("Dendritic model")
-# print_network_entropy(model)
-print("Vanilla model")
-# print_network_entropy(v_model)
-
-# raise Exception("Stop here")
-
-print("\n")
-print(f"number of mask updates: {model.layers[0].num_mask_updates}")
-# print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
-print("\n")
-
-compare_models(
-    model,
-    b_model,
-    v_model,
-    optimiser,
-    b_optimiser,
-    v_optimiser,
+train_one_model(
     X_train,
     y_train,
     X_test,
     y_test,
+    model,
     criterion,
+    optimiser,
     n_epochs=n_epochs,
     batch_size=batch_size,
-    model_name_1="Synaptic Resampling",
-    model_name_2="Base Dendritic",
-    model_name_3="Vanilla ANN",
-    track_variance=False,
 )
 
+# # plot_dendritic_weights_full_model(model, X_test[0])
+# # for i in range(10):
+#     # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
+
+# sum_of_synapses = cp.count_nonzero(model.layers[0].dendrite_W)
+# print(f"sum of synapses: {sum_of_synapses}")
+
+
+# # baseline dendritic model
+# b_criterion = CrossEntropy()
+# b_model = Sequential(
+#     [
+#         DendriticLayer(
+#             in_dim,
+#             n_neurons,
+#             n_dendrite_inputs=n_dendrite_inputs,
+#             n_dendrites=n_dendrites,
+#             strategy=strategy,
+#             synaptic_resampling=False,
+#         ),
+#         LeakyReLU(),
+#         LinearLayer(n_neurons, n_classes),1
+#     ]
+# )
+# b_optimiser = Adam(b_model.params(), b_criterion, lr=b_lr, weight_decay=weight_decay)
+
+# # vanilla model
+# v_criterion = CrossEntropy()
+# v_model = Sequential(
+#     [
+#         LinearLayer(in_dim, 512),
+#         LeakyReLU(),
+#         LinearLayer(512, 512),
+#         LeakyReLU(),
+#         LinearLayer(512, n_classes),
+#     ]
+# )
+# v_optimiser = Adam(v_model.params(), v_criterion, lr=v_lr, weight_decay=weight_decay)
+
+# print(f"number of model_1 params: {model.num_params()}")
+# print(f"number of model_2 params: {b_model.num_params()}")
+# print(f"number of model_3 params: {v_model.num_params()}")
+
 # print("Dendritic model")
-# print_network_entropy(model)
+# # print_network_entropy(model)
 # print("Vanilla model")
-# print_network_entropy(v_model)
+# # print_network_entropy(v_model)
 
-# print("\n\n")
+# # raise Exception("Stop here")
+
+# print("\n")
 # print(f"number of mask updates: {model.layers[0].num_mask_updates}")
-# print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
-# print("\n\n")
+# # print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
+# print("\n")
 
-# Visualize the weights of the first neuron in the dendritic model
-# print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
-# # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
-# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
-# print("Vanilla model")
-# for i in range(10):
-    # print(i)
-    # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
+# compare_models(
+#     model,
+#     b_model,
+#     v_model,
+#     optimiser,
+#     b_optimiser,
+#     v_optimiser,
+#     X_train,
+#     y_train,
+#     X_test,
+#     y_test,
+#     criterion,
+#     n_epochs=n_epochs,
+#     batch_size=batch_size,
+#     model_name_1="Synaptic Resampling",
+#     model_name_2="Base Dendritic",
+#     model_name_3="Vanilla ANN",
+#     track_variance=False,
+# )
 
+# # print("Dendritic model")
+# # print_network_entropy(model)
+# # print("Vanilla model")
+# # print_network_entropy(v_model)
+
+# # print("\n\n")
+# # print(f"number of mask updates: {model.layers[0].num_mask_updates}")
+# # print(f"number of mask updates baseline model: {v_model.layers[0].num_mask_updates}")
+# # print("\n\n")
+
+# # Visualize the weights of the first neuron in the dendritic model
+# # print("\nVisualizing dendritic weights for the first neuron of the dendritic model...")
+# # # plot_dendritic_weights(model, X_test[0], neuron_idx=0)
+# # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=0)
+# # print("Vanilla model")
+# # for i in range(10):
+#     # print(i)
+#     # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
 
 # # %%
-plot_dendritic_weights_full_model(model, X_test[0])
+
+# plot_dendritic_weights_full_model(b_model, X_test[0])
+# # %%
+# idx = 1
+# sample_1 = X_test[idx]
+# true_label = cp.argmax(y_test[idx])
+# predictions = model(sample_1)
+
+# predicted_label = cp.argmax(predictions)
+# print(f"raw prediction: {predictions}")
+# print(f"sample 1 predicted label: {predicted_label}, true label: {true_label}")
+
+# plot_dendritic_weights(model, X_test[idx], neuron_idx=true_label)
+# plot_dendritic_weights_single_image(model, X_test[idx], neuron_idx=true_label)
+
 
 # if __name__ == "__main__":
-#     main()
-
-# %%
-idx = 1
-sample_1 = X_test[idx]
-true_label = cp.argmax(y_test[idx])
-predictions = model(sample_1)
-
-predicted_label = cp.argmax(predictions)
-print(f"raw prediction: {predictions}")
-print(f"sample 1 predicted label: {predicted_label}, true label: {true_label}")
-
-plot_dendritic_weights(model, X_test[idx], neuron_idx=2)
-plot_dendritic_weights_single_image(model, X_test[idx], neuron_idx=2)
-
-
-
-
-
-
-
-
-
-# %%
+# main()
