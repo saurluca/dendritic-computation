@@ -1,6 +1,7 @@
 # %%
 try:
     import cupy as cp
+
     # Test if CuPy can actually access CUDA and random number generator
     cp.cuda.Device(0).compute_capability
     cp.random.seed(1)  # Test if random number generator works
@@ -49,9 +50,9 @@ class Adam:
 
     def step(self):
         self.t += 1  # Increment global time step
-        
+
         grad = self.params.dendrite_dW
-        
+
         # Update first moment estimate
         self.m = self.beta1 * self.m + (1 - self.beta1) * grad
         # Update second moment estimate
@@ -67,7 +68,7 @@ class Adam:
         # Update parameters
         self.params.dendrite_W -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps)
         self.params.dendrite_W -= self.lr * self.weight_decay * self.params.dendrite_W
-        
+
         # CRITICAL: Ensure weights stay masked - multiply by mask to zero out inactive connections
         self.params.dendrite_W = self.params.dendrite_W * self.params.dendrite_mask
 
@@ -132,29 +133,30 @@ class MinimalDendriticLayer:
         # dendrite back pass
         self.dendrite_dW = grad.T @ self.dendrite_x * self.dendrite_mask
         dendrite_grad = grad @ self.dendrite_W
-        
+
         # Ensure weights stay masked - critical for maintaining connection count
         self.dendrite_W = self.dendrite_W * self.dendrite_mask
 
         if self.synaptic_resampling:
             self.update_steps += 1
 
-            
             # if enough steps have passed, resample
             if self.dynamic_steps_size:
                 resample_bool = self.update_steps >= 100 + 5 * self.num_mask_updates
                 # resample_bool = self.update_steps >= cp.exp((self.num_mask_updates + 20) / 10 ) + 20
             else:
                 # resample_bool = self.update_steps >= 20 + 10 * self.num_mask_updates
-                resample_bool = self.update_steps >= self.steps_to_resample and self.num_mask_updates < self.stop_after_n_mask_updates
+                resample_bool = (
+                    self.update_steps >= self.steps_to_resample
+                    and self.num_mask_updates < self.stop_after_n_mask_updates
+                )
                 # if self.update_steps == 500:
-                    # print("LAST UPDATE")
+                # print("LAST UPDATE")
             if resample_bool:
                 # reset step counter
                 self.update_steps = 0
                 self.resample_dendrites()
-                
-                
+
         return dendrite_grad
 
     def resample_dendrites(self):
@@ -179,11 +181,13 @@ class MinimalDendriticLayer:
 
         # Create corresponding row indices and flatten for the swap logic
         rows_to_remove = cp.arange(num_dendrites)[:, cp.newaxis]
-        removed_dendrite_indices = rows_to_remove.repeat(n_to_remove_per_dendrite, axis=1).flatten()
+        removed_dendrite_indices = rows_to_remove.repeat(
+            n_to_remove_per_dendrite, axis=1
+        ).flatten()
         removed_input_indices = cols_to_remove.flatten()
 
         n_connections_to_remove = removed_dendrite_indices.size
-        
+
         # --- Part 2: One-shot Resampling Attempt ---
         num_inputs_per_dendrite = self.dendrite_x.shape[1]
 
@@ -192,13 +196,22 @@ class MinimalDendriticLayer:
         )
 
         # --- Part 3: Conflict Detection ---
-        conflict_with_existing = self.dendrite_mask[removed_dendrite_indices, newly_selected_input_indices] == 1
-        
+        conflict_with_existing = (
+            self.dendrite_mask[removed_dendrite_indices, newly_selected_input_indices]
+            == 1
+        )
+
         num_dendrites = self.dendrite_mask.shape[0]
-        proposed_flat_indices = removed_dendrite_indices * num_inputs_per_dendrite + newly_selected_input_indices
-        counts = cp.bincount(proposed_flat_indices.astype(int), minlength=num_dendrites * num_inputs_per_dendrite)
+        proposed_flat_indices = (
+            removed_dendrite_indices * num_inputs_per_dendrite
+            + newly_selected_input_indices
+        )
+        counts = cp.bincount(
+            proposed_flat_indices.astype(int),
+            minlength=num_dendrites * num_inputs_per_dendrite,
+        )
         is_duplicate_flat = counts[proposed_flat_indices.astype(int)] > 1
-        
+
         is_problematic = conflict_with_existing | is_duplicate_flat
         is_successful = ~is_problematic
 
@@ -211,28 +224,27 @@ class MinimalDendriticLayer:
             self.dendrite_mask[dendrites_to_swap, old_inputs_to_remove] = 0
             self.dendrite_mask[dendrites_to_swap, new_inputs_to_add] = 1
 
-            self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = (
-                cp.random.randn(dendrites_to_swap.shape[0]) * cp.sqrt(2.0 / self.in_dim)
-            )
-            
-            
+            self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = cp.random.randn(
+                dendrites_to_swap.shape[0]
+            ) * cp.sqrt(2.0 / self.in_dim)
+
         self.dendrite_W = self.dendrite_W * self.dendrite_mask
-        
+
         # print(f"num of dendrite successful swaps: {dendrites_to_swap.size}")
         self.num_mask_updates += 1
-        
+
         # --- Part 5: Verification ---
         connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
         connections_per_dendrite_weights = cp.count_nonzero(self.dendrite_W, axis=1)
-        assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), \
+        assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), (
             f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
-        assert cp.all(connections_per_dendrite_weights == self.n_dendrite_inputs), \
+        )
+        assert cp.all(connections_per_dendrite_weights == self.n_dendrite_inputs), (
             f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
+        )
 
     def num_params(self):
-        print(
-            f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}"
-        )
+        print(f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}")
         return int(cp.sum(self.dendrite_mask))
 
     def __call__(self, x):
@@ -246,9 +258,9 @@ cp.random.seed(1902)
 dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
 
 # config
-n_epochs = 30 # 15 MNIST, 20 Fashion-MNIST
+n_epochs = 30  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.002  # 0.003
-weight_decay = 0.01 #0.001
+weight_decay = 0.01  # 0.001
 batch_size = 256
 grad_clip = 100.0
 
@@ -269,7 +281,9 @@ model = MinimalDendriticLayer(
     steps_to_resample=100,
     stop_after_n_mask_updates=60,
 )
-optimiser = Adam(model, criterion, lr=lr, weight_decay=weight_decay, grad_clip=grad_clip)
+optimiser = Adam(
+    model, criterion, lr=lr, weight_decay=weight_decay, grad_clip=grad_clip
+)
 
 print(f"model params: {model.num_params()}")
 
@@ -292,7 +306,7 @@ print(f"number of mask updates: {model.num_mask_updates}")
 plt.plot(train_losses, label="Train Loss", color="blue")
 plt.plot(test_losses, label="Test Loss", color="red")
 plt.legend()
-plt.show()  
+plt.show()
 
 plt.plot(train_accuracy, label="Train Accuracy", color="blue")
 plt.plot(test_accuracy, label="Test Accuracy", color="red")
@@ -306,7 +320,7 @@ print(f"test accuracy: {test_accuracy[-1]:.3f}")
 
 # plot_dendritic_weights_full_model(model, X_test[0])
 # for i in range(10):
-    # plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
+# plot_dendritic_weights_single_image(model, X_test[0], neuron_idx=i)
 
 lll = cp.count_nonzero(model.dendrite_W)
 print(f"sum of mask: {lll}")
@@ -317,4 +331,3 @@ print(f"number of mask updates: {model.num_mask_updates}")
 # %%
 
 # sum of mask
-

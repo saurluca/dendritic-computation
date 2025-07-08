@@ -282,7 +282,7 @@ class Sequential:
             if hasattr(layer, "num_params"):
                 num_params += layer.num_params()
         return num_params
-    
+
     def var_params(self):
         var_params = []
         for layer in self.layers:
