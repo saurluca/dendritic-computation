@@ -99,6 +99,49 @@ class ELU:
         return self.forward(x)
 
 
+class Dropout:
+    def __init__(self, p=0.5):
+        """
+        Dropout layer that randomly sets input elements to zero with probability p.
+        
+        Args:
+            p (float): Probability of setting an element to zero. Default is 0.5.
+        """
+        self.p = p
+        self.training = True
+        self.mask = None
+        
+    def train(self):
+        """Set the layer to training mode."""
+        self.training = True
+        
+    def eval(self):
+        """Set the layer to evaluation mode."""
+        self.training = False
+
+    def forward(self, x):
+        if self.training and self.p > 0:
+            # Generate random mask: 1 where we keep the value, 0 where we drop
+            self.mask = cp.random.rand(*x.shape) > self.p
+            # Apply mask and scale by 1/(1-p) to maintain expected values
+            return x * self.mask / (1 - self.p)
+        else:
+            # During evaluation, just pass through
+            self.mask = None
+            return x
+
+    def backward(self, grad):
+        if self.mask is not None:
+            # Apply the same mask to gradients and scale
+            return grad * self.mask / (1 - self.p)
+        else:
+            # During evaluation, just pass gradients through
+            return grad
+
+    def __call__(self, x):
+        return self.forward(x)
+
+
 class SGD:
     def __init__(self, params, criterion, lr=0.01, momentum=0.9):
         self.params = params
@@ -289,6 +332,18 @@ class Sequential:
             if hasattr(layer, "var_params"):
                 var_params.append(layer.var_params())
         return var_params
+
+    def train(self):
+        """Set all layers to training mode."""
+        for layer in self.layers:
+            if hasattr(layer, "train"):
+                layer.train()
+
+    def eval(self):
+        """Set all layers to evaluation mode."""
+        for layer in self.layers:
+            if hasattr(layer, "eval"):
+                layer.eval()
 
     def __call__(self, x):
         for layer in self.layers:
