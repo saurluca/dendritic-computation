@@ -12,7 +12,15 @@ except (ImportError, Exception) as e:
     print(f"CuPy not available or CUDA error ({type(e).__name__}), using NumPy (CPU)")
 
 from matplotlib import pyplot as plt
-from modules import Adam, CrossEntropy, LeakyReLU, Sequential, DendriticLayer, LinearLayer
+from modules import (
+    Adam,
+    CrossEntropy,
+    LeakyReLU,
+    Sequential,
+    DendriticLayer,
+    LinearLayer,
+    Dropout,
+)
 from utils import load_mnist_data, load_cifar10_data
 from training import (
     compare_models,
@@ -29,7 +37,7 @@ from training import (
 cp.random.seed(12123)
 
 # data config
-dataset = "cifar10"  # "mnist", "fashion-mnist", "cifar10"
+dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
 
 # config
@@ -40,6 +48,7 @@ b_lr = 0.001  # 0.015 - SGD
 weight_decay = 0.001  # 0.001
 batch_size = 128
 n_classes = 10
+grad_clip = 0.1
 
 print("RUN 50 epochs, 0.001 lr, 128 batch size")
 
@@ -54,8 +63,8 @@ else:
 
 # dendriticmodel config
 n_dendrite_inputs = 32  # 31
-n_dendrites = 32  # 23
-n_neurons = 256  # 10
+n_dendrites = 16  # 23
+n_neurons = 64  # 10
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
 if dataset in ["mnist", "fashion-mnist"]:
@@ -86,8 +95,9 @@ model = Sequential(
     ]
 )
 optimiser = Adam(
-    model.params(), criterion, lr=lr, weight_decay=weight_decay, grad_clip=0.1
+    model.params(), criterion, lr=lr, weight_decay=weight_decay, grad_clip=grad_clip
 )
+
 
 # train_one_model(
 #     X_train,
@@ -119,7 +129,11 @@ b_model = Sequential(
             n_dendrite_inputs=n_dendrite_inputs,
             n_dendrites=n_dendrites,
             strategy=strategy,
-            synaptic_resampling=False,
+            synaptic_resampling=True,
+            percentage_resample=0.25,
+            steps_to_resample=128,
+            scaling_resampling_percentage=False,
+            dynamic_steps_size=False,
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
