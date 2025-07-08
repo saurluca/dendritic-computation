@@ -1,3 +1,4 @@
+# %%
 try:
     import cupy as cp
 
@@ -82,7 +83,6 @@ class Adam:
         beta2=0.999,
         eps=1e-8,
         weight_decay=0.0,
-        grad_clip=None,
     ):
         self.params = params
         self.criterion = criterion
@@ -92,7 +92,6 @@ class Adam:
         self.eps = eps
         self.t = 0  # Global time step, increments once per batch
         self.weight_decay = weight_decay
-        self.grad_clip = grad_clip
 
         # Initialize moment estimates based on layer type
         self.m = []
@@ -161,14 +160,12 @@ class Adam:
                 m_hat = self.m[i][j] / (1 - self.beta1**self.t)
                 v_hat = self.v[i][j] / (1 - self.beta2**self.t)
 
-                if self.grad_clip:
-                    m_hat = cp.clip(m_hat, -self.grad_clip, self.grad_clip)
-
                 # Update parameters
                 param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps)
                 param -= self.lr * self.weight_decay * param
 
             # Apply dendrite mask to ensure sparsity is maintained
+            # TODO fix this in the dendritic layer
             if hasattr(layer, "dendrite_W"):
                 layer.dendrite_W = layer.dendrite_W * layer.dendrite_mask
 
@@ -242,39 +239,37 @@ class DendriticLayer:
         self,
         in_dim,
         n_neurons,
-        n_dendrite_inputs=16,
-        n_dendrites=4,
+        n_dendrite_inputs,
+        n_dendrites,
         synaptic_resampling=True,
         percentage_resample=0.005,
-        scaling_resampling_percentage=False,
         steps_to_resample=100,
-        dynamic_steps_size=False,
     ):
-        n_soma_connections = n_dendrites * n_neurons
+        self.in_dim = in_dim
+        self.n_dendrite_inputs = n_dendrite_inputs
         self.n_neurons = n_neurons
         self.n_dendrites = n_dendrites
+        self.n_soma_connections = n_dendrites * n_neurons
+        self.n_synaptic_connections = n_dendrite_inputs * n_dendrites * n_neurons
+
         # dynamicly resample
         self.synaptic_resampling = synaptic_resampling
         self.percentage_resample = percentage_resample
         self.steps_to_resample = steps_to_resample
-        self.scaling_resampling_percentage = scaling_resampling_percentage
-        self.dynamic_steps_size = dynamic_steps_size
         # to keep track of resampling
         self.num_mask_updates = 1
         self.update_steps = 0
 
-        self.in_dim = in_dim
-        self.n_dendrite_inputs = n_dendrite_inputs
-        self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
+        self.dendrite_W = cp.random.randn(self.n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
         )  # He init, for ReLU
-        self.dendrite_b = cp.zeros((n_soma_connections))
+        self.dendrite_b = cp.zeros((self.n_soma_connections))
         self.dendrite_dW = 0.0
         self.dendrite_db = 0.0
         self.dendrite_activation = LeakyReLU()
 
-        self.soma_W = cp.random.randn(n_neurons, n_soma_connections) * cp.sqrt(
-            2.0 / (n_soma_connections)
+        self.soma_W = cp.random.randn(n_neurons, self.n_soma_connections) * cp.sqrt(
+            2.0 / (self.n_soma_connections)
         )  # He init, for ReLU
         self.soma_b = cp.zeros(n_neurons)
         self.soma_dW = 0.0
@@ -291,7 +286,7 @@ class DendriticLayer:
         # number of 1 per row is n_dendrites, rest 0. every column only has 1 entry
         # number of rows equals n_neurons, number of columns eqais n_soma_connections
         # it is a step pattern, so the first n_dendrites entries of the first row are one.
-        self.soma_mask = cp.zeros((n_neurons, n_soma_connections))
+        self.soma_mask = cp.zeros((n_neurons, self.n_soma_connections))
         for i in range(n_neurons):
             start_idx = i * n_dendrites
             end_idx = start_idx + n_dendrites
@@ -302,8 +297,8 @@ class DendriticLayer:
 
         # sample dendrite mask
         # for each dendrite sample n_dendrite_inputs from the input array
-        self.dendrite_mask = cp.zeros((n_soma_connections, in_dim))
-        for i in range(n_soma_connections):
+        self.dendrite_mask = cp.zeros((self.n_soma_connections, in_dim))
+        for i in range(self.n_soma_connections):
             # sample without replacement from possible input for a given dendrite from the whole input
             input_idx = cp.random.choice(
                 cp.arange(in_dim), size=n_dendrite_inputs, replace=False
@@ -325,7 +320,7 @@ class DendriticLayer:
         x = self.soma_activation(x)
         return x
 
-    def backward(self, grad):
+    def backward(self, grad):        
         grad = self.soma_activation.backward(grad)
 
         # soma back pass, multiply with mask to keep only valid gradients
@@ -341,97 +336,119 @@ class DendriticLayer:
         dendrite_grad = soma_grad @ self.dendrite_W
 
         self.update_steps += 1
-
-        if self.update_steps >= self.steps_to_resample:
+        
+        # resample dendrites every steps_to_resample steps
+        if self.synaptic_resampling and self.update_steps >= self.steps_to_resample:
             # reset step counter
             self.update_steps = 0
             self.resample_dendrites()
-
-            # Ensure dendrite weights stay masked to maintain constant synapse count
-            self.dendrite_W = self.dendrite_W * self.dendrite_mask
 
         return dendrite_grad
 
     def resample_dendrites(self):
         # --- Part 1: Connection Removal ---
+        # calculate number of connections to remove per dendrite
         n_to_remove_per_dendrite = int(
             self.n_dendrite_inputs * self.percentage_resample
         )
-        if n_to_remove_per_dendrite == 0:
+        if n_to_remove_per_dendrite == 0: 
             return
 
         num_dendrites = self.dendrite_mask.shape[0]
 
-        # For magnitude, we remove the smallest. Set inactive connections to infinity so they are not picked.
+        # The metric is the magnitude of the weights, removing the smallest.
         metric = cp.abs(self.dendrite_W)
+        # Set inactive connections to infinity so they are not picked.
         metric[self.dendrite_mask == 0] = cp.inf
+        # sort by magnitude
         sorted_indices = cp.argsort(metric, axis=1)
+        # remove the smallest n_to_remove_per_dendrite connections per dendrite
         cols_to_remove = sorted_indices[:, :n_to_remove_per_dendrite]
 
         # Create corresponding row indices and flatten for the swap logic
+    
+        # dummy array of dendrite indices shape (num_dendrites, 1)
         rows_to_remove = cp.arange(num_dendrites)[:, cp.newaxis]
-        removed_dendrite_indices = rows_to_remove.repeat(
-            n_to_remove_per_dendrite, axis=1
-        ).flatten()
+        # dummy array of shape (num_dendrites , n_to_remove_per_dendrite), flattened
+        removed_dendrite_indices = rows_to_remove.repeat(n_to_remove_per_dendrite, axis=1).flatten()
         removed_input_indices = cols_to_remove.flatten()
-
-        n_connections_to_remove = removed_dendrite_indices.size
+        
+        # removed_input_indices, contins the indices of the inputs to remove/resample
+        # for each dendrite in a flattened array
 
         # --- Part 2: One-shot Resampling Attempt ---
-        num_inputs_per_dendrite = self.dendrite_x.shape[1]
+        n_connections_to_resample = removed_dendrite_indices.size
 
+        # sample n_connections_to_resample new inputs between 0 and in_dim
         newly_selected_input_indices = cp.random.randint(
-            0, num_inputs_per_dendrite, size=n_connections_to_remove, dtype=int
-        )
-
+            0, self.in_dim, size=n_connections_to_resample, dtype=int
+        ) # shape (n_connections_to_resample, 1)
+        
         # --- Part 3: Conflict Detection ---
+        # check if new inputs are already existing in the same dendrite
         conflict_with_existing = (
             self.dendrite_mask[removed_dendrite_indices, newly_selected_input_indices]
             == 1
         )
 
-        num_dendrites = self.dendrite_mask.shape[0]
+        # create flat indices of proposed new connections
+        # by multiplying dendrite index with in_dim and adding the input index,
+        # we get a unique index for each proposed new connection, in  the same dendrite
         proposed_flat_indices = (
-            removed_dendrite_indices * num_inputs_per_dendrite
+            removed_dendrite_indices * self.in_dim
             + newly_selected_input_indices
-        )
+        ) # shape (n_connections_to_resample, 1)
+        
+        # count number of occurences of each index
         counts = cp.bincount(
             proposed_flat_indices.astype(int),
-            minlength=num_dendrites * num_inputs_per_dendrite,
-        )
+            minlength=num_dendrites * self.in_dim,
+        ) # shape (num_dendrites * in_dim, 1)
+        
+        # check if index is duplicated, in the same dendrite
         is_duplicate_flat = counts[proposed_flat_indices.astype(int)] > 1
-
+        
+        # flag as problematic if either conflict or duplicate
         is_problematic = conflict_with_existing | is_duplicate_flat
+        # flag as successful if not problematic
         is_successful = ~is_problematic
 
         # --- Part 4: Apply Successful Swaps ---
         dendrites_to_swap = removed_dendrite_indices[is_successful]
-        old_inputs_to_remove = removed_input_indices[is_successful]
-        new_inputs_to_add = newly_selected_input_indices[is_successful]
 
         if dendrites_to_swap.size > 0:
+            old_inputs_to_remove = removed_input_indices[is_successful]
+            new_inputs_to_add = newly_selected_input_indices[is_successful]
+            
+            # remove old inputs
             self.dendrite_mask[dendrites_to_swap, old_inputs_to_remove] = 0
             self.dendrite_mask[dendrites_to_swap, new_inputs_to_add] = 1
 
             self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = cp.random.randn(
                 dendrites_to_swap.shape[0]
             ) * cp.sqrt(2.0 / self.in_dim)
-
-        self.dendrite_W = self.dendrite_W * self.dendrite_mask
+            
+            # 0 out old weights and gradients
+            self.dendrite_W[dendrites_to_swap, old_inputs_to_remove] = 0
+            self.dendrite_dW[dendrites_to_swap, old_inputs_to_remove] = 0
+            # TODO also fix in ADAM momentums
 
         # print(f"num of dendrite successful swaps: {dendrites_to_swap.size}")
 
         self.num_mask_updates += 1
 
         # --- Part 5: Verification ---
-        connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
-        assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), (
-            f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
+        n_dendritic_mask_connections = cp.sum(self.dendrite_mask, axis=1)
+        assert cp.all(n_dendritic_mask_connections == self.n_dendrite_inputs), (
+            f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections per dendrite."
         )
-        # verify number of non zero dendrite_W equal to n_dendrite_inputs
-        assert cp.sum(self.dendrite_W != 0) == self.n_dendrite_inputs, (
-            f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
+        assert (
+            cp.sum(cp.count_nonzero(self.dendrite_W)) == self.n_synaptic_connections
+        ), (
+            f"Resampling failed: not all dendrites have {self.n_synaptic_connections} connections in total."
         )
+        
+        # raise Exception("Not implemented")
 
     def num_params(self):
         print(
@@ -570,7 +587,9 @@ def train(
             train_loss = 0.0
             correct_pred = 0.0
             for batch_idx, (X, target) in enumerate(
-                create_batches(X_train, y_train, batch_size, shuffle=True, drop_last=True)
+                create_batches(
+                    X_train, y_train, batch_size, shuffle=True, drop_last=True
+                )
             ):
                 # forward pass
                 pred = model(X)
@@ -602,9 +621,9 @@ def train(
                 X_test, y_test, model, criterion
             )
             normalised_train_loss = train_loss / num_batches_per_epoch
-            train_losses.append(float(normalised_train_loss)) 
+            train_losses.append(float(normalised_train_loss))
             epoch_accuracy = correct_pred / n_samples
-            accuracy.append(float(epoch_accuracy)) 
+            accuracy.append(float(epoch_accuracy))
             test_losses.append(float(epoch_test_loss))
             test_accuracy.append(float(epoch_test_accuracy))
     return train_losses, accuracy, test_losses, test_accuracy
@@ -615,15 +634,13 @@ def evaluate(
     y_test,
     model,
     criterion,
-    batch_size=1024, # higher batch size for testing
+    batch_size=1024,  # higher batch size for testing
 ):
     n_samples = len(X_test)
     test_loss = 0.0
     correct_pred = 0.0
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
-    for X, target in create_batches(
-        X_test, y_test, batch_size, shuffle=False
-    ):
+    for X, target in create_batches(X_test, y_test, batch_size, shuffle=False):
         # forward pass
         pred = model(X)
         batch_loss = criterion(pred, target)
@@ -643,6 +660,7 @@ def plot_dendritic_weights_single_image(
     Plots the aggregated magnitude of all dendritic weights of a single neuron on one image.
     Color indicates the sum of magnitudes at each location.
     """
+
     def to_numpy(arr):
         if hasattr(arr, "get"):
             return arr.get()
@@ -706,6 +724,7 @@ def plot_dendritic_weights_full_model(model, image_shape=(28, 28)):
     Plots the aggregated magnitude of all dendritic weights across all neurons in the model.
     Shows the combined weight pattern without any background image.
     """
+
     def to_numpy(arr):
         if hasattr(arr, "get"):
             return arr.get()
@@ -750,7 +769,9 @@ def plot_dendritic_weights_full_model(model, image_shape=(28, 28)):
     # Add colorbar
     fig.colorbar(im, ax=ax, label="Sum of All Dendritic Weight Magnitudes")
 
-    ax.set_title(f"All Dendritic Weights Aggregated\nTotal Neurons: {n_neurons}, Dendrites per Neuron: {n_dendrites}")
+    ax.set_title(
+        f"All Dendritic Weights Aggregated\nTotal Neurons: {n_neurons}, Dendrites per Neuron: {n_dendrites}"
+    )
     ax.axis("off")
     plt.tight_layout()
     plt.show()
@@ -816,14 +837,13 @@ v_lr = 0.002  # 0.015 - SGD
 b_lr = 0.002  # 0.015 - SGD
 weight_decay = 0.01  # 0.001
 batch_size = 256
-grad_clip = 0.1
 
 in_dim = 28 * 28  # Image dimensions (28x28 MNIST)
 n_classes = 10
 
 # dendritic model config
-n_dendrite_inputs = 31  # 31
-n_dendrites = 23  # 23
+n_dendrite_inputs = 32  # 32
+n_dendrites = 16  # 23
 n_neurons = 10  # 10
 
 # vanilla model config
@@ -848,8 +868,6 @@ model_1 = Sequential(
             synaptic_resampling=True,
             percentage_resample=0.25,
             steps_to_resample=128,
-            scaling_resampling_percentage=False,
-            dynamic_steps_size=False,
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
@@ -879,9 +897,9 @@ model_3 = Sequential(
         LinearLayer(hidden_dim, n_classes),
     ]
 )
-optimiser_1 = Adam(model_1.params(), criterion_1, lr=lr, weight_decay=weight_decay, grad_clip=grad_clip)
-optimiser_2 = Adam(model_2.params(), criterion_2, lr=b_lr, weight_decay=weight_decay, grad_clip=grad_clip)
-optimiser_3 = Adam(model_3.params(), criterion_3, lr=v_lr, weight_decay=weight_decay, grad_clip=grad_clip)
+optimiser_1 = Adam(model_1.params(), criterion_1, lr=lr, weight_decay=weight_decay)
+optimiser_2 = Adam(model_2.params(), criterion_2, lr=b_lr, weight_decay=weight_decay)
+optimiser_3 = Adam(model_3.params(), criterion_3, lr=v_lr, weight_decay=weight_decay)
 
 print(f"number of model_1 params: {model_1.num_params()}")
 print(f"number of model_2 params: {model_2.num_params()}")
@@ -891,12 +909,7 @@ print(f"number of model_3 params: {model_3.num_params()}")
 X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset)
 
 print(f"Training {model_name_1} model...")
-(
-    train_losses_1,
-    train_accuracy_1,
-    test_losses_1,
-    test_accuracy_1,
-) = train(
+train_losses_1, train_accuracy_1, test_losses_1, test_accuracy_1 = train(
     X_train,
     y_train,
     X_test,
@@ -909,12 +922,7 @@ print(f"Training {model_name_1} model...")
 )
 
 print(f"Training {model_name_2} model...")
-(
-    train_losses_2,
-    train_accuracy_2,
-    test_losses_2,
-    test_accuracy_2,
-) = train(
+train_losses_2, train_accuracy_2, test_losses_2, test_accuracy_2 = train(
     X_train,
     y_train,
     X_test,
@@ -927,13 +935,7 @@ print(f"Training {model_name_2} model...")
 )
 
 print(f"Training {model_name_3} model...")
-(
-    train_losses_3,
-    train_accuracy_3,
-    test_losses_3,
-    test_accuracy_3,
-    variance_of_weights_3,
-) = train(
+train_losses_3, train_accuracy_3, test_losses_3, test_accuracy_3 = train(
     X_train,
     y_train,
     X_test,
@@ -946,15 +948,9 @@ print(f"Training {model_name_3} model...")
 )
 
 # plot accuracy of vanilla model vs dendritic model
-plt.plot(
-    train_accuracy_1, label=f"{model_name_1} Train", color="green", linestyle="--"
-)
-plt.plot(
-    train_accuracy_2, label=f"{model_name_2} Train", color="blue", linestyle="--"
-)
-plt.plot(
-    train_accuracy_3, label=f"{model_name_3} Train", color="red", linestyle="--"
-)
+plt.plot(train_accuracy_1, label=f"{model_name_1} Train", color="green", linestyle="--")
+plt.plot(train_accuracy_2, label=f"{model_name_2} Train", color="blue", linestyle="--")
+plt.plot(train_accuracy_3, label=f"{model_name_3} Train", color="red", linestyle="--")
 plt.plot(test_accuracy_1, label=f"{model_name_1} Test", color="green")
 plt.plot(test_accuracy_2, label=f"{model_name_2} Test", color="blue")
 plt.plot(test_accuracy_3, label=f"{model_name_3} Test", color="red")
@@ -963,12 +959,8 @@ plt.legend()
 plt.show()
 
 # plot both models in comparison
-plt.plot(
-    train_losses_1, label=f"{model_name_1} Train", color="green", linestyle="--"
-)
-plt.plot(
-    train_losses_2, label=f"{model_name_2} Train", color="blue", linestyle="--"
-)
+plt.plot(train_losses_1, label=f"{model_name_1} Train", color="green", linestyle="--")
+plt.plot(train_losses_2, label=f"{model_name_2} Train", color="blue", linestyle="--")
 plt.plot(train_losses_3, label=f"{model_name_3} Train", color="red", linestyle="--")
 plt.plot(test_losses_1, label=f"{model_name_1} Test", color="green")
 plt.plot(test_losses_2, label=f"{model_name_2} Test", color="blue")

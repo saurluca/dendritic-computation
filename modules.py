@@ -103,18 +103,18 @@ class Dropout:
     def __init__(self, p=0.5):
         """
         Dropout layer that randomly sets input elements to zero with probability p.
-        
+
         Args:
             p (float): Probability of setting an element to zero. Default is 0.5.
         """
         self.p = p
         self.training = True
         self.mask = None
-        
+
     def train(self):
         """Set the layer to training mode."""
         self.training = True
-        
+
     def eval(self):
         """Set the layer to evaluation mode."""
         self.training = False
@@ -349,7 +349,6 @@ class Sequential:
         for layer in self.layers:
             x = layer(x)
         return x
-
 
 
 class LinearLayer:
@@ -765,4 +764,3 @@ class DendriticLayer:
 
     def __call__(self, x):
         return self.forward(x)
-
