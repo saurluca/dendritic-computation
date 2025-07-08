@@ -14,3 +14,4 @@ wheels/
 # Data
 grid_search_results.json
 results/
+grid_search_results_small.json
