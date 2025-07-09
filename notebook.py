@@ -1019,3 +1019,4 @@ print(
 plot_dendritic_weights_single_image(model_1, X_train[0], neuron_idx=4)
 plot_dendritic_weights_full_model(model_1)
 plot_dendritic_weights_full_model(model_2)
+# %%

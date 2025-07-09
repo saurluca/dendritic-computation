@@ -153,14 +153,23 @@ class SGD:
         self.updates = []
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                self.updates.append(
-                    [
-                        cp.zeros_like(layer.dendrite_W),
-                        cp.zeros_like(layer.dendrite_b),
-                        cp.zeros_like(layer.soma_W),
-                        cp.zeros_like(layer.soma_b),
-                    ]
-                )
+                if hasattr(layer, "soma_enabled") and not layer.soma_enabled:
+                    # Dendrite-only layer (no bias, like MinimalDendriticLayer)
+                    self.updates.append(
+                        [
+                            cp.zeros_like(layer.dendrite_W),
+                        ]
+                    )
+                else:
+                    # Full dendritic layer with soma
+                    self.updates.append(
+                        [
+                            cp.zeros_like(layer.dendrite_W),
+                            cp.zeros_like(layer.dendrite_b),
+                            cp.zeros_like(layer.soma_W),
+                            cp.zeros_like(layer.soma_b),
+                        ]
+                    )
             else:  # LinearLayer
                 self.updates.append([cp.zeros_like(layer.W), cp.zeros_like(layer.b)])
 
@@ -168,9 +177,10 @@ class SGD:
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 layer.dendrite_dW = 0.0
-                layer.dendrite_db = 0.0
-                layer.soma_dW = 0.0
-                layer.soma_db = 0.0
+                if hasattr(layer, "soma_enabled") and layer.soma_enabled:
+                    layer.dendrite_db = 0.0
+                    layer.soma_dW = 0.0
+                    layer.soma_db = 0.0
             else:  # LinearLayer
                 layer.dW = 0.0
                 layer.db = 0.0
@@ -178,14 +188,22 @@ class SGD:
     def step(self):
         for layer, update in zip(self.params, self.updates):
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
-                update[1] = self.lr * layer.dendrite_db + self.momentum * update[1]
-                update[2] = self.lr * layer.soma_dW + self.momentum * update[2]
-                update[3] = self.lr * layer.soma_db + self.momentum * update[3]
-                layer.dendrite_W -= update[0]
-                layer.dendrite_b -= update[1]
-                layer.soma_W -= update[2]
-                layer.soma_b -= update[3]
+                if hasattr(layer, "soma_enabled") and not layer.soma_enabled:
+                    # Dendrite-only layer (no bias, like MinimalDendriticLayer)
+                    update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
+                    layer.dendrite_W -= update[0]
+                else:
+                    # Full dendritic layer with soma
+                    update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
+                    update[1] = self.lr * layer.dendrite_db + self.momentum * update[1]
+                    layer.dendrite_W -= update[0]
+                    layer.dendrite_b -= update[1]
+                    
+                    update[2] = self.lr * layer.soma_dW + self.momentum * update[2]
+                    update[3] = self.lr * layer.soma_db + self.momentum * update[3]
+                    layer.soma_W -= update[2]
+                    layer.soma_b -= update[3]
+                    
                 # Apply dendrite mask to ensure sparsity is maintained
                 layer.dendrite_W = layer.dendrite_W * layer.dendrite_mask
             else:  # LinearLayer
@@ -225,22 +243,36 @@ class Adam:
         self.v = []
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                self.m.append(
-                    [
-                        cp.zeros_like(layer.dendrite_W),
-                        cp.zeros_like(layer.dendrite_b),
-                        cp.zeros_like(layer.soma_W),
-                        cp.zeros_like(layer.soma_b),
-                    ]
-                )
-                self.v.append(
-                    [
-                        cp.zeros_like(layer.dendrite_W),
-                        cp.zeros_like(layer.dendrite_b),
-                        cp.zeros_like(layer.soma_W),
-                        cp.zeros_like(layer.soma_b),
-                    ]
-                )
+                if hasattr(layer, "soma_enabled") and not layer.soma_enabled:
+                    # Dendrite-only layer (no bias, like MinimalDendriticLayer)
+                    self.m.append(
+                        [
+                            cp.zeros_like(layer.dendrite_W),
+                        ]
+                    )
+                    self.v.append(
+                        [
+                            cp.zeros_like(layer.dendrite_W),
+                        ]
+                    )
+                else:
+                    # Full dendritic layer with soma
+                    self.m.append(
+                        [
+                            cp.zeros_like(layer.dendrite_W),
+                            cp.zeros_like(layer.dendrite_b),
+                            cp.zeros_like(layer.soma_W),
+                            cp.zeros_like(layer.soma_b),
+                        ]
+                    )
+                    self.v.append(
+                        [
+                            cp.zeros_like(layer.dendrite_W),
+                            cp.zeros_like(layer.dendrite_b),
+                            cp.zeros_like(layer.soma_W),
+                            cp.zeros_like(layer.soma_b),
+                        ]
+                    )
             else:  # LinearLayer
                 self.m.append([cp.zeros_like(layer.W), cp.zeros_like(layer.b)])
                 self.v.append([cp.zeros_like(layer.W), cp.zeros_like(layer.b)])
@@ -249,9 +281,10 @@ class Adam:
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 layer.dendrite_dW = 0.0
-                layer.dendrite_db = 0.0
-                layer.soma_dW = 0.0
-                layer.soma_db = 0.0
+                if hasattr(layer, "soma_enabled") and layer.soma_enabled:
+                    layer.dendrite_db = 0.0
+                    layer.soma_dW = 0.0
+                    layer.soma_db = 0.0
             else:  # LinearLayer
                 layer.dW = 0.0
                 layer.db = 0.0
@@ -260,18 +293,28 @@ class Adam:
         self.t += 1  # Increment global time step
         for i, layer in enumerate(self.params):
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                grads = [
-                    layer.dendrite_dW,
-                    layer.dendrite_db,
-                    layer.soma_dW,
-                    layer.soma_db,
-                ]
-                params = [
-                    layer.dendrite_W,
-                    layer.dendrite_b,
-                    layer.soma_W,
-                    layer.soma_b,
-                ]
+                if hasattr(layer, "soma_enabled") and not layer.soma_enabled:
+                    # Dendrite-only layer (no bias, like MinimalDendriticLayer)
+                    grads = [
+                        layer.dendrite_dW,
+                    ]
+                    params = [
+                        layer.dendrite_W,
+                    ]
+                else:
+                    # Full dendritic layer with soma
+                    grads = [
+                        layer.dendrite_dW,
+                        layer.dendrite_db,
+                        layer.soma_dW,
+                        layer.soma_db,
+                    ]
+                    params = [
+                        layer.dendrite_W,
+                        layer.dendrite_b,
+                        layer.soma_W,
+                        layer.soma_b,
+                    ]
             else:  # LinearLayer
                 grads = [layer.dW, layer.db]
                 params = [layer.W, layer.b]
@@ -315,7 +358,7 @@ class Sequential:
         """Return a list of layers that have a Weight vectors"""
         params = []
         for layer in self.layers:
-            if hasattr(layer, "W") or hasattr(layer, "soma_W"):
+            if hasattr(layer, "W") or hasattr(layer, "soma_W") or hasattr(layer, "dendrite_W"):
                 params.append(layer)
         return params
 
@@ -401,12 +444,19 @@ class DendriticLayer:
         local_receptive_field_std_dev_factor=0.5,
         lrf_resampling_prob=0.0,
         dynamic_steps_size=False,
+        soma_enabled=True,
     ):
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
             "Invalid strategy"
         )
         self.strategy = strategy
-        n_soma_connections = n_dendrites * n_neurons
+        self.soma_enabled = soma_enabled
+        # When soma is disabled, we only need n_dendrites (not n_neurons * n_dendrites)
+        # because each dendrite becomes an independent output unit
+        if soma_enabled:
+            n_soma_connections = n_dendrites * n_neurons
+        else:
+            n_soma_connections = n_dendrites
         self.n_neurons = n_neurons
         self.n_dendrites = n_dendrites
         # dynamicly resample
@@ -427,37 +477,44 @@ class DendriticLayer:
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
         )  # He init, for ReLU
-        self.dendrite_b = cp.zeros((n_soma_connections))
-        self.dendrite_dW = 0.0
-        self.dendrite_db = 0.0
-        self.dendrite_activation = LeakyReLU()
+        
+        # Only create bias when soma is enabled (like MinimalDendriticLayer)
+        if self.soma_enabled:
+            self.dendrite_b = cp.zeros((n_soma_connections))
+            self.dendrite_db = 0.0
+            self.dendrite_activation = LeakyReLU()
+        else:
+            # No bias when soma disabled (matches MinimalDendriticLayer)
+            self.dendrite_dW = 0.0
 
-        self.soma_W = cp.random.randn(n_neurons, n_soma_connections) * cp.sqrt(
-            2.0 / (n_soma_connections)
-        )  # He init, for ReLU
-        self.soma_b = cp.zeros(n_neurons)
-        self.soma_dW = 0.0
-        self.soma_db = 0.0
-        self.soma_activation = LeakyReLU()
+        if self.soma_enabled:
+            self.soma_W = cp.random.randn(n_neurons, n_soma_connections) * cp.sqrt(
+                2.0 / (n_soma_connections)
+            )  # He init, for ReLU
+            self.soma_b = cp.zeros(n_neurons)
+            self.soma_dW = 0.0
+            self.soma_db = 0.0
+            self.soma_activation = LeakyReLU()
 
         # inputs to save for backprop
         self.dendrite_x = None
         self.soma_x = None
 
-        # sample soma mask:
-        # [[1, 1, 0, 0]
-        #  [0, 0, 1, 1]]
-        # number of 1 per row is n_dendrites, rest 0. every column only has 1 entry
-        # number of rows equals n_neurons, number of columns eqais n_soma_connections
-        # it is a step pattern, so the first n_dendrites entries of the first row are one.
-        self.soma_mask = cp.zeros((n_neurons, n_soma_connections))
-        for i in range(n_neurons):
-            start_idx = i * n_dendrites
-            end_idx = start_idx + n_dendrites
-            self.soma_mask[i, start_idx:end_idx] = 1
+        if self.soma_enabled:
+            # sample soma mask:
+            # [[1, 1, 0, 0]
+            #  [0, 0, 1, 1]]
+            # number of 1 per row is n_dendrites, rest 0. every column only has 1 entry
+            # number of rows equals n_neurons, number of columns eqais n_soma_connections
+            # it is a step pattern, so the first n_dendrites entries of the first row are one.
+            self.soma_mask = cp.zeros((n_neurons, n_soma_connections))
+            for i in range(n_neurons):
+                start_idx = i * n_dendrites
+                end_idx = start_idx + n_dendrites
+                self.soma_mask[i, start_idx:end_idx] = 1
 
-        # mask out unneeded weights, thus making weights sparse
-        self.soma_W = self.soma_W * self.soma_mask
+            # mask out unneeded weights, thus making weights sparse
+            self.soma_W = self.soma_W * self.soma_mask
 
         # sample dendrite mask
         # for each dendrite sample n_dendrite_inputs from the input array
@@ -518,29 +575,39 @@ class DendriticLayer:
     def forward(self, x):
         # dendrites forward pass
         self.dendrite_x = x
-        x = x @ self.dendrite_W.T + self.dendrite_b
-        x = self.dendrite_activation(x)
+        if self.soma_enabled:
+            x = x @ self.dendrite_W.T + self.dendrite_b
+            x = self.dendrite_activation(x)
 
-        # soma forward pass
-        self.soma_x = x
-        x = x @ self.soma_W.T + self.soma_b
-        x = self.soma_activation(x)
+            # soma forward pass
+            self.soma_x = x
+            x = x @ self.soma_W.T + self.soma_b
+            x = self.soma_activation(x)
+        else:
+            # No bias when soma disabled (matches MinimalDendriticLayer)
+            x = x @ self.dendrite_W.T
         return x
 
     def backward(self, grad):
-        grad = self.soma_activation.backward(grad)
+        if self.soma_enabled:
+            grad = self.soma_activation.backward(grad)
 
-        # soma back pass, multiply with mask to keep only valid gradients
-        self.soma_dW = grad.T @ self.soma_x * self.soma_mask
-        self.soma_db = grad.sum(axis=0)
-        soma_grad = grad @ self.soma_W
+            # soma back pass, multiply with mask to keep only valid gradients
+            self.soma_dW = grad.T @ self.soma_x * self.soma_mask
+            self.soma_db = grad.sum(axis=0)
+            soma_grad = grad @ self.soma_W
 
-        soma_grad = self.dendrite_activation.backward(soma_grad)
+            soma_grad = self.dendrite_activation.backward(soma_grad)
 
-        # dendrite back pass
-        self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
-        self.dendrite_db = soma_grad.sum(axis=0)
-        dendrite_grad = soma_grad @ self.dendrite_W
+            # dendrite back pass
+            self.dendrite_dW = soma_grad.T @ self.dendrite_x * self.dendrite_mask
+            self.dendrite_db = soma_grad.sum(axis=0)
+            dendrite_grad = soma_grad @ self.dendrite_W
+        else:
+            # When soma is disabled, gradients go directly to dendrites
+            # dendrite back pass (no activation function and no bias when soma disabled)
+            self.dendrite_dW = grad.T @ self.dendrite_x * self.dendrite_mask
+            dendrite_grad = grad @ self.dendrite_W
 
         if self.synaptic_resampling:
             self.update_steps += 1
@@ -744,23 +811,36 @@ class DendriticLayer:
         )
 
     def num_params(self):
-        print(
-            f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
-        )
-        return int(
-            cp.sum(self.dendrite_mask)
-            + self.dendrite_b.size
-            + cp.sum(self.soma_mask)
-            + self.soma_b.size
-        )
+        if self.soma_enabled:
+            print(
+                f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
+            )
+            return int(
+                cp.sum(self.dendrite_mask)
+                + self.dendrite_b.size
+                + cp.sum(self.soma_mask)
+                + self.soma_b.size
+            )
+        else:
+            print(
+                f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)} (no bias, like MinimalDendriticLayer)"
+            )
+            return int(
+                cp.sum(self.dendrite_mask)
+            )
 
     def var_params(self):
-        return (
-            cp.var(self.dendrite_W)
-            + cp.var(self.dendrite_b)
-            + cp.var(self.soma_W)
-            + cp.var(self.soma_b)
-        )
+        if self.soma_enabled:
+            return (
+                cp.var(self.dendrite_W)
+                + cp.var(self.dendrite_b)
+                + cp.var(self.soma_W)
+                + cp.var(self.soma_b)
+            )
+        else:
+            return (
+                cp.var(self.dendrite_W)
+            )
 
     def __call__(self, x):
         return self.forward(x)

@@ -330,9 +330,11 @@ class TransformerBlock(nn.Module):
                     n_neurons=n_neurons,
                     n_dendrite_inputs=n_dendrite_inputs,
                     n_dendrites=n_dendrites,
-                    synaptic_resampling=False  # No resampling for ViT
+                    synaptic_resampling=True,  # No resampling for ViT
+                    percentage_resample=0.15,
+                    steps_to_resample=64
                 ),
-                nn.Dropout(dropout)
+                # nn.Dropout(dropout)
             )
         else:
             # Standard feedforward MLP
@@ -676,8 +678,8 @@ def main():
     
     # Configuration
     dataset = "cifar10"  # "mnist", "fashion-mnist", or "cifar10"
-    n_epochs = 25
-    learning_rate = 0.002
+    n_epochs = 8
+    learning_rate = 0.005
     batch_size = 256
     
     # Load data (get input dimensions and classes from dataset)
@@ -765,7 +767,7 @@ def main():
     print("="*60)
     vit_dendritic_results = train_model(
         vit_dendritic_model, train_loader, test_loader,
-        model_name="ViT-Dendritic", n_epochs=n_epochs, learning_rate=learning_rate
+        model_name="ViT-Dendritic", n_epochs=n_epochs, learning_rate=0.002
     )
     results["ViT-Dendritic"] = vit_dendritic_results
     
@@ -774,7 +776,7 @@ def main():
     print("="*60)
     vit_ff_results = train_model(
         vit_ff_model, train_loader, test_loader, 
-        model_name="ViT-FF", n_epochs=n_epochs, learning_rate=learning_rate
+        model_name="ViT-FF", n_epochs=n_epochs, learning_rate=0.002
     )
     results["ViT-FF"] = vit_ff_results
 

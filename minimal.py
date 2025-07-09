@@ -267,7 +267,7 @@ grad_clip = 100.0
 in_dim = 28 * 28  # Image dimensions (28x28 MNIST, 32x32x3 CIFAR-10)
 
 # dendriticmodel config
-n_dendrite_inputs = 18
+n_dendrite_inputs = 32
 n_dendrites = 10  # 10 classes for MNIST
 X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset)
 
@@ -277,8 +277,8 @@ model = MinimalDendriticLayer(
     n_dendrites,
     n_dendrite_inputs=n_dendrite_inputs,
     synaptic_resampling=True,
-    percentage_resample=0.25,
-    steps_to_resample=100,
+    percentage_resample=0.5,
+    steps_to_resample=128,
     stop_after_n_mask_updates=60,
 )
 optimiser = Adam(

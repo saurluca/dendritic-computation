@@ -33,23 +33,22 @@ from training import (
 
 
 # for repoducability
-cp.random.seed(12123)
+cp.random.seed(1223)
 
 # data config
-dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
+dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
 
 # config
 n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
-lr = 0.002  # 0.003
+lr = 0.0005  # 0.003
 v_lr = 0.002  # 0.015 - SGD
 b_lr = 0.002  # 0.015 - SGD
 weight_decay = 0.001  # 0.001
 batch_size = 128
 n_classes = 10
-grad_clip = 0.1
+grad_clip = 100.0
 
-print("RUN 50 epochs, 0.001 lr, 128 batch size")
 
 if dataset in ["mnist", "fashion-mnist"]:
     in_dim = 28 * 28  # Image dimensions (28x28 MNIST, 32x32x3 CIFAR-10)
@@ -61,9 +60,9 @@ else:
 # cifar10: 32 / 18 / 49, equal to input / 10 / 10
 
 # dendriticmodel config
-n_dendrite_inputs = 32  # 31
-n_dendrites = 16  # 23
-n_neurons = 64  # 10
+n_dendrite_inputs = 76  # 31
+n_dendrites = 10  # 23
+n_neurons = 10  # 10
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
 if dataset in ["mnist", "fashion-mnist"]:
@@ -80,9 +79,10 @@ model = Sequential(
         DendriticLayer(
             in_dim,
             n_neurons,
-            n_dendrite_inputs=n_dendrite_inputs,
-            n_dendrites=n_dendrites,
+            n_dendrite_inputs=128,
+            n_dendrites=256,
             strategy=strategy,
+            soma_enabled=False,
             synaptic_resampling=True,
             percentage_resample=0.25,
             steps_to_resample=128,
@@ -90,7 +90,7 @@ model = Sequential(
             dynamic_steps_size=False,
         ),
         LeakyReLU(),
-        LinearLayer(n_neurons, n_classes),
+        LinearLayer(256, n_classes),
     ]
 )
 optimiser = Adam(
@@ -98,17 +98,19 @@ optimiser = Adam(
 )
 
 
-# train_one_model(
-#     X_train,
-#     y_train,
-#     X_test,
-#     y_test,
-#     model,
-#     criterion,
-#     optimiser,
-#     n_epochs=n_epochs,
-#     batch_size=batch_size,
-# )
+train_one_model(
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    model,
+    criterion,
+    optimiser,
+    n_epochs=n_epochs,
+    batch_size=batch_size,
+)
+
+raise Exception("Stop here")
 
 # # plot_dendritic_weights_full_model(model, X_test[0])
 # # for i in range(10):
@@ -125,17 +127,32 @@ b_model = Sequential(
         DendriticLayer(
             in_dim,
             n_neurons,
-            n_dendrite_inputs=n_dendrite_inputs,
-            n_dendrites=n_dendrites,
+            n_dendrite_inputs=76,
+            n_dendrites=90,
             strategy=strategy,
-            synaptic_resampling=True,
+            soma_enabled=False,
+            synaptic_resampling=False,
             percentage_resample=0.25,
             steps_to_resample=128,
             scaling_resampling_percentage=False,
             dynamic_steps_size=False,
         ),
         LeakyReLU(),
-        LinearLayer(n_neurons, n_classes),
+        LinearLayer(90, n_classes),
+        # DendriticLayer(
+        #     in_dim,
+        #     n_neurons,
+        #     n_dendrite_inputs=n_dendrite_inputs,
+        #     n_dendrites=n_dendrites,
+        #     strategy=strategy,
+        #     synaptic_resampling=True,
+        #     percentage_resample=0.25,
+        #     steps_to_resample=128,
+        #     scaling_resampling_percentage=False,
+        #     dynamic_steps_size=False,
+        # ),
+        # LeakyReLU(),
+        # LinearLayer(n_neurons, n_classes),
     ]
 )
 b_optimiser = Adam(b_model.params(), b_criterion, lr=b_lr, weight_decay=weight_decay)
