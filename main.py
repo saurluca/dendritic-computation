@@ -27,7 +27,6 @@ from training import (
     plot_dendritic_weights,
     plot_dendritic_weights_single_image,
     print_network_entropy,
-    train,
     train_one_model,
     plot_dendritic_weights_full_model,
 )
@@ -37,14 +36,14 @@ from training import (
 cp.random.seed(12123)
 
 # data config
-dataset = "mnist"  # "mnist", "fashion-mnist", "cifar10"
+dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
 
 # config
 n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
-lr = 0.001  # 0.003
-v_lr = 0.001  # 0.015 - SGD
-b_lr = 0.001  # 0.015 - SGD
+lr = 0.002  # 0.003
+v_lr = 0.002  # 0.015 - SGD
+b_lr = 0.002  # 0.015 - SGD
 weight_decay = 0.001  # 0.001
 batch_size = 128
 n_classes = 10

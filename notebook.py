@@ -77,21 +77,17 @@ class Adam:
     def __init__(
         self,
         params,
-        criterion,
         lr=0.01,
         beta1=0.9,
         beta2=0.999,
         eps=1e-8,
-        weight_decay=0.0,
     ):
         self.params = params
-        self.criterion = criterion
         self.lr = lr
         self.beta1 = beta1
         self.beta2 = beta2
         self.eps = eps
         self.t = 0  # Global time step, increments once per batch
-        self.weight_decay = weight_decay
 
         # Initialize moment estimates based on layer type
         self.m = []
@@ -162,7 +158,6 @@ class Adam:
 
                 # Update parameters
                 param -= self.lr * m_hat / (cp.sqrt(v_hat) + self.eps)
-                param -= self.lr * self.weight_decay * param
 
     def __call__(self):
         return self.step()
@@ -237,8 +232,8 @@ class DendriticLayer:
         n_dendrite_inputs,
         n_dendrites,
         synaptic_resampling=True,
-        percentage_resample=0.005,
-        steps_to_resample=100,
+        percentage_resample=0.25,
+        steps_to_resample=128,
     ):
         self.in_dim = in_dim
         self.n_dendrite_inputs = n_dendrite_inputs
@@ -864,17 +859,16 @@ def plot_dendritic_weights_full_model(model, image_shape=(28, 28)):
 
 
 # for repoducability
-cp.random.seed(12123)
+cp.random.seed(1287305472311233)
 
 # data config
 dataset = "mnist"  # "mnist", "fashion-mnist"
 
 # config
 n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
-lr = 0.002  # 0.003
-v_lr = 0.002  # 0.015 - SGD
-b_lr = 0.002  # 0.015 - SGD
-weight_decay = 0.01  # 0.001
+lr = 0.002  # 0.002
+v_lr = 0.002  # 0.002 
+b_lr = 0.002  # 0.002
 batch_size = 256
 
 in_dim = 28 * 28  # Image dimensions (28x28 MNIST)
@@ -882,19 +876,17 @@ n_classes = 10
 
 # dendritic model config
 n_dendrite_inputs = 32  # 32
-n_dendrites = 16  # 23
+n_dendrites = 23  # 23
 n_neurons = 10  # 10
 
 # vanilla model config
-hidden_dim = 10
+hidden_dim = 10 # 10
 
 model_name_1 = "Synaptic Resampling"
 model_name_2 = "Base Dendritic"
 model_name_3 = "Vanilla ANN"
 
-criterion_1 = CrossEntropy()
-criterion_2 = CrossEntropy()
-criterion_3 = CrossEntropy()
+criterion = CrossEntropy()
 
 # new model with synaptic resampling
 model_1 = Sequential(
@@ -905,8 +897,8 @@ model_1 = Sequential(
             n_dendrite_inputs=n_dendrite_inputs,
             n_dendrites=n_dendrites,
             synaptic_resampling=True,
-            percentage_resample=0.25,
-            steps_to_resample=128,
+            percentage_resample=0.5, # 0.5
+            steps_to_resample=128, # 128
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
@@ -936,9 +928,9 @@ model_3 = Sequential(
         LinearLayer(hidden_dim, n_classes),
     ]
 )
-optimiser_1 = Adam(model_1.params(), criterion_1, lr=lr, weight_decay=weight_decay)
-optimiser_2 = Adam(model_2.params(), criterion_2, lr=b_lr, weight_decay=weight_decay)
-optimiser_3 = Adam(model_3.params(), criterion_3, lr=v_lr, weight_decay=weight_decay)
+optimiser_1 = Adam(model_1.params(), lr=lr)
+optimiser_2 = Adam(model_2.params(), lr=b_lr)
+optimiser_3 = Adam(model_3.params(), lr=v_lr)
 
 print(f"number of model_1 params: {model_1.num_params()}")
 print(f"number of model_2 params: {model_2.num_params()}")
@@ -954,11 +946,13 @@ train_losses_1, train_accuracy_1, test_losses_1, test_accuracy_1 = train(
     X_test,
     y_test,
     model_1,
-    criterion_1,
+    criterion,
     optimiser_1,
     n_epochs,
     batch_size,
 )
+print(f"train accuracy {model_name_1} model {round(train_accuracy_1[-1] * 100, 1)}%")
+print(f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}%")
 
 print(f"Training {model_name_2} model...")
 train_losses_2, train_accuracy_2, test_losses_2, test_accuracy_2 = train(
@@ -967,7 +961,7 @@ train_losses_2, train_accuracy_2, test_losses_2, test_accuracy_2 = train(
     X_test,
     y_test,
     model_2,
-    criterion_2,
+    criterion,
     optimiser_2,
     n_epochs,
     batch_size,
@@ -980,7 +974,7 @@ train_losses_3, train_accuracy_3, test_losses_3, test_accuracy_3 = train(
     X_test,
     y_test,
     model_3,
-    criterion_3,
+    criterion,
     optimiser_3,
     n_epochs,
     batch_size,
@@ -1020,3 +1014,8 @@ print(
 print(
     f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(test_accuracy_2[-1] * 100, 1)}% vs {model_name_3} {round(test_accuracy_3[-1] * 100, 1)}%"
 )
+
+# %%
+plot_dendritic_weights_single_image(model_1, X_train[0], neuron_idx=4)
+plot_dendritic_weights_full_model(model_1)
+plot_dendritic_weights_full_model(model_2)
