@@ -865,7 +865,7 @@ cp.random.seed(1287305472311233)
 dataset = "mnist"  # "mnist", "fashion-mnist"
 
 # config
-n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
+n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.002  # 0.002
 v_lr = 0.002  # 0.002 
 b_lr = 0.002  # 0.002
