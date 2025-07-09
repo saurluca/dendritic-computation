@@ -224,15 +224,15 @@ class DendriticNet(nn.Module):
         return total
 
 
-def load_mnist_data(dataset="mnist", batch_size=256):
-    """Load MNIST or Fashion-MNIST dataset with normalization
+def load_dataset(dataset="mnist", batch_size=256):
+    """Load MNIST, Fashion-MNIST, or CIFAR-10 dataset with normalization
     
     Args:
-        dataset (str): Dataset to load - either "mnist" or "fashion-mnist"
+        dataset (str): Dataset to load - "mnist", "fashion-mnist", or "cifar10"
         batch_size (int): Batch size for data loaders
         
     Returns:
-        tuple: (train_loader, test_loader)
+        tuple: (train_loader, test_loader, input_dim, num_classes)
     """
     
     # Dataset-specific configurations
@@ -240,14 +240,26 @@ def load_mnist_data(dataset="mnist", batch_size=256):
         # MNIST mean and std
         mean, std = (0.1307,), (0.3081,)
         dataset_class = torchvision.datasets.MNIST
+        input_dim = 28 * 28  # 784
+        num_classes = 10
         print("Loading MNIST dataset...")
     elif dataset == "fashion-mnist":
-        # Fashion-MNIST mean and std (similar to MNIST)
+        # Fashion-MNIST mean and std
         mean, std = (0.2860,), (0.3530,)
         dataset_class = torchvision.datasets.FashionMNIST
+        input_dim = 28 * 28  # 784
+        num_classes = 10
         print("Loading Fashion-MNIST dataset...")
+    elif dataset == "cifar10":
+        # CIFAR-10 mean and std per channel (RGB)
+        mean = (0.4914, 0.4822, 0.4465)
+        std = (0.2023, 0.1994, 0.2010)
+        dataset_class = torchvision.datasets.CIFAR10
+        input_dim = 32 * 32 * 3  # 3072
+        num_classes = 10
+        print("Loading CIFAR-10 dataset...")
     else:
-        raise ValueError(f"Dataset must be 'mnist' or 'fashion-mnist', got '{dataset}'")
+        raise ValueError(f"Dataset must be 'mnist', 'fashion-mnist', or 'cifar10', got '{dataset}'")
     
     # Define transforms
     transform = transforms.Compose([
@@ -271,7 +283,7 @@ def load_mnist_data(dataset="mnist", batch_size=256):
         test_dataset, batch_size=batch_size, shuffle=False, num_workers=8
     )
     
-    return train_loader, test_loader
+    return train_loader, test_loader, input_dim, num_classes
 
 
 def train_model(model, train_loader, test_loader, n_epochs=20, learning_rate=0.002):
@@ -405,20 +417,23 @@ def main():
     np.random.seed(42)
     
     # Configuration
-    dataset = "mnist"  # "mnist" or "fashion-mnist"
+    dataset = "cifar10"  # "mnist", "fashion-mnist", or "cifar10"
     n_epochs = 20
     learning_rate = 0.002
     batch_size = 256
     
-    # Model configuration
-    in_dim = 28 * 28  # Image dimensions (28x28)
-    n_classes = 10
-    n_dendrite_inputs = 32
-    n_dendrites = 23
-    n_neurons = 10
+    # Model configuration (adjust based on dataset complexity)
+    if dataset == "cifar10":
+        n_dendrite_inputs = 128  # More inputs for CIFAR-10's higher complexity
+        n_dendrites = 64
+        n_neurons = 32
+    else:  # MNIST or Fashion-MNIST
+        n_dendrite_inputs = 32
+        n_dendrites = 23
+        n_neurons = 10
     
-    # Load data
-    train_loader, test_loader = load_mnist_data(dataset, batch_size)
+    # Load data (get input dimensions and classes from dataset)
+    train_loader, test_loader, in_dim, n_classes = load_dataset(dataset, batch_size)
     
     # Create model
     model = DendriticNet(
