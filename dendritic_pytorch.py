@@ -224,29 +224,51 @@ class DendriticNet(nn.Module):
         return total
 
 
-def load_mnist_data(batch_size=256):
-    """Load MNIST dataset with normalization"""
+def load_mnist_data(dataset="mnist", batch_size=256):
+    """Load MNIST or Fashion-MNIST dataset with normalization
+    
+    Args:
+        dataset (str): Dataset to load - either "mnist" or "fashion-mnist"
+        batch_size (int): Batch size for data loaders
+        
+    Returns:
+        tuple: (train_loader, test_loader)
+    """
+    
+    # Dataset-specific configurations
+    if dataset == "mnist":
+        # MNIST mean and std
+        mean, std = (0.1307,), (0.3081,)
+        dataset_class = torchvision.datasets.MNIST
+        print("Loading MNIST dataset...")
+    elif dataset == "fashion-mnist":
+        # Fashion-MNIST mean and std (similar to MNIST)
+        mean, std = (0.2860,), (0.3530,)
+        dataset_class = torchvision.datasets.FashionMNIST
+        print("Loading Fashion-MNIST dataset...")
+    else:
+        raise ValueError(f"Dataset must be 'mnist' or 'fashion-mnist', got '{dataset}'")
     
     # Define transforms
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))  # MNIST mean and std
+        transforms.Normalize(mean, std)
     ])
     
     # Load datasets
-    train_dataset = torchvision.datasets.MNIST(
+    train_dataset = dataset_class(
         root='./data', train=True, download=True, transform=transform
     )
-    test_dataset = torchvision.datasets.MNIST(
+    test_dataset = dataset_class(
         root='./data', train=False, download=True, transform=transform
     )
     
     # Create data loaders
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=2
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=8
     )
     test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False, num_workers=2
+        test_dataset, batch_size=batch_size, shuffle=False, num_workers=8
     )
     
     return train_loader, test_loader
@@ -383,20 +405,20 @@ def main():
     np.random.seed(42)
     
     # Configuration
-    n_epochs = 15
+    dataset = "mnist"  # "mnist" or "fashion-mnist"
+    n_epochs = 20
     learning_rate = 0.002
     batch_size = 256
     
     # Model configuration
-    in_dim = 28 * 28  # MNIST image size
+    in_dim = 28 * 28  # Image dimensions (28x28)
     n_classes = 10
     n_dendrite_inputs = 32
     n_dendrites = 23
     n_neurons = 10
     
     # Load data
-    print("Loading MNIST dataset...")
-    train_loader, test_loader = load_mnist_data(batch_size)
+    train_loader, test_loader = load_mnist_data(dataset, batch_size)
     
     # Create model
     model = DendriticNet(
