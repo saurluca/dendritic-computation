@@ -154,10 +154,11 @@ class SGD:
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 if hasattr(layer, "soma_enabled") and not layer.soma_enabled:
-                    # Dendrite-only layer (no bias, like MinimalDendriticLayer)
+                    # Dendrite-only layer (with dendrite bias)
                     self.updates.append(
                         [
                             cp.zeros_like(layer.dendrite_W),
+                            cp.zeros_like(layer.dendrite_b),
                         ]
                     )
                 else:
@@ -177,8 +178,8 @@ class SGD:
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 layer.dendrite_dW = 0.0
+                layer.dendrite_db = 0.0
                 if hasattr(layer, "soma_enabled") and layer.soma_enabled:
-                    layer.dendrite_db = 0.0
                     layer.soma_dW = 0.0
                     layer.soma_db = 0.0
             else:  # LinearLayer
@@ -189,9 +190,11 @@ class SGD:
         for layer, update in zip(self.params, self.updates):
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 if hasattr(layer, "soma_enabled") and not layer.soma_enabled:
-                    # Dendrite-only layer (no bias, like MinimalDendriticLayer)
+                    # Dendrite-only layer (with dendrite bias)
                     update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
+                    update[1] = self.lr * layer.dendrite_db + self.momentum * update[1]
                     layer.dendrite_W -= update[0]
+                    layer.dendrite_b -= update[1]
                 else:
                     # Full dendritic layer with soma
                     update[0] = self.lr * layer.dendrite_dW + self.momentum * update[0]
@@ -244,15 +247,17 @@ class Adam:
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 if hasattr(layer, "soma_enabled") and not layer.soma_enabled:
-                    # Dendrite-only layer (no bias, like MinimalDendriticLayer)
+                    # Dendrite-only layer (with dendrite bias)
                     self.m.append(
                         [
                             cp.zeros_like(layer.dendrite_W),
+                            cp.zeros_like(layer.dendrite_b),
                         ]
                     )
                     self.v.append(
                         [
                             cp.zeros_like(layer.dendrite_W),
+                            cp.zeros_like(layer.dendrite_b),
                         ]
                     )
                 else:
@@ -281,8 +286,8 @@ class Adam:
         for layer in self.params:
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 layer.dendrite_dW = 0.0
+                layer.dendrite_db = 0.0
                 if hasattr(layer, "soma_enabled") and layer.soma_enabled:
-                    layer.dendrite_db = 0.0
                     layer.soma_dW = 0.0
                     layer.soma_db = 0.0
             else:  # LinearLayer
@@ -294,12 +299,14 @@ class Adam:
         for i, layer in enumerate(self.params):
             if hasattr(layer, "dendrite_W"):  # DendriticLayer
                 if hasattr(layer, "soma_enabled") and not layer.soma_enabled:
-                    # Dendrite-only layer (no bias, like MinimalDendriticLayer)
+                    # Dendrite-only layer (with dendrite bias)
                     grads = [
                         layer.dendrite_dW,
+                        layer.dendrite_db,
                     ]
                     params = [
                         layer.dendrite_W,
+                        layer.dendrite_b,
                     ]
                 else:
                     # Full dendritic layer with soma
@@ -478,14 +485,11 @@ class DendriticLayer:
             2.0 / (in_dim)
         )  # He init, for ReLU
         
-        # Only create bias when soma is enabled (like MinimalDendriticLayer)
-        if self.soma_enabled:
-            self.dendrite_b = cp.zeros((n_soma_connections))
-            self.dendrite_db = 0.0
-            self.dendrite_activation = LeakyReLU()
-        else:
-            # No bias when soma disabled (matches MinimalDendriticLayer)
-            self.dendrite_dW = 0.0
+        # Always create bias and activation for dendrites, regardless of soma_enabled
+        self.dendrite_b = cp.zeros((n_soma_connections))
+        self.dendrite_db = 0.0
+        self.dendrite_activation = LeakyReLU()
+        self.dendrite_dW = 0.0
 
         if self.soma_enabled:
             self.soma_W = cp.random.randn(n_neurons, n_soma_connections) * cp.sqrt(
@@ -575,17 +579,14 @@ class DendriticLayer:
     def forward(self, x):
         # dendrites forward pass
         self.dendrite_x = x
+        x = x @ self.dendrite_W.T + self.dendrite_b
+        x = self.dendrite_activation(x)
+        
         if self.soma_enabled:
-            x = x @ self.dendrite_W.T + self.dendrite_b
-            x = self.dendrite_activation(x)
-
             # soma forward pass
             self.soma_x = x
             x = x @ self.soma_W.T + self.soma_b
             x = self.soma_activation(x)
-        else:
-            # No bias when soma disabled (matches MinimalDendriticLayer)
-            x = x @ self.dendrite_W.T
         return x
 
     def backward(self, grad):
@@ -605,8 +606,10 @@ class DendriticLayer:
             dendrite_grad = soma_grad @ self.dendrite_W
         else:
             # When soma is disabled, gradients go directly to dendrites
-            # dendrite back pass (no activation function and no bias when soma disabled)
+            # dendrite back pass (with activation function and bias)
+            grad = self.dendrite_activation.backward(grad)
             self.dendrite_dW = grad.T @ self.dendrite_x * self.dendrite_mask
+            self.dendrite_db = grad.sum(axis=0)
             dendrite_grad = grad @ self.dendrite_W
 
         if self.synaptic_resampling:
@@ -823,10 +826,11 @@ class DendriticLayer:
             )
         else:
             print(
-                f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)} (no bias, like MinimalDendriticLayer)"
+                f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size} (soma disabled)"
             )
             return int(
                 cp.sum(self.dendrite_mask)
+                + self.dendrite_b.size
             )
 
     def var_params(self):
@@ -840,6 +844,7 @@ class DendriticLayer:
         else:
             return (
                 cp.var(self.dendrite_W)
+                + cp.var(self.dendrite_b)
             )
 
     def __call__(self, x):

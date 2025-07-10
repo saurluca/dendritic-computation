@@ -42,7 +42,6 @@ def train(
     optimiser,
     n_epochs=2,
     batch_size=128,
-    track_variance=False,
 ):
     train_losses = []
     accuracy = []
@@ -51,8 +50,6 @@ def train(
     n_samples = len(X_train)
     num_batches_per_epoch = (n_samples + batch_size - 1) // batch_size
     total_batches = n_epochs * num_batches_per_epoch
-
-    variance_of_weights = []
 
     with tqdm(total=total_batches, desc="Training ") as pbar:
         for epoch in range(n_epochs):
@@ -77,9 +74,6 @@ def train(
                 model.backward(grad)
                 optimiser.step()
 
-                if track_variance:
-                    variance_of_weights.append(model.var_params())
-
                 # Update progress bar
                 pbar.set_postfix(
                     {
@@ -101,7 +95,7 @@ def train(
             accuracy.append(float(epoch_accuracy))  # Convert to float for plotting
             test_losses.append(float(epoch_test_loss))
             test_accuracy.append(float(epoch_test_accuracy))
-    return train_losses, accuracy, test_losses, test_accuracy, variance_of_weights
+    return train_losses, accuracy, test_losses, test_accuracy
 
 
 def evaluate(
@@ -130,59 +124,8 @@ def evaluate(
     return float(normalised_test_loss), float(accuracy)
 
 
-def train_one_model(
-    X_train,
-    y_train,
-    X_test,
-    y_test,
-    model,
-    criterion,
-    optimiser,
-    n_epochs=2,
-    batch_size=256,
-):
-    print(f"number of params: {model.num_params()}")
-
-    train_losses, train_accuracy, test_losses, test_accuracy, _ = train(
-        X_train,
-        y_train,
-        X_test,
-        y_test,
-        model,
-        criterion,
-        optimiser,
-        n_epochs=n_epochs,
-        batch_size=batch_size,
-    )
-
-    print(f"number of mask updates: {model.layers[0].num_mask_updates}")
-
-    # plot train and test accuracy
-    plt.plot(train_losses, label="Train Loss", color="blue")
-    plt.plot(test_losses, label="Test Loss", color="red")
-    plt.legend()
-    plt.show()
-    # plt.savefig("train_losses.png")
-
-    plt.plot(train_accuracy, label="Train Accuracy", color="blue")
-    plt.plot(test_accuracy, label="Test Accuracy", color="red")
-    plt.legend()
-    plt.show()
-    # plt.savefig("train_accuracy.png")
-
-    print(f"train loss: {train_losses[-1]:.3f}")
-    print(f"test loss: {test_losses[-1]:.3f}")
-    print(f"train accuracy: {train_accuracy[-1]:.3f}")
-    print(f"test accuracy: {test_accuracy[-1]:.3f}")
-
-
-def compare_models(
-    model_1,
-    model_2,
-    model_3,
-    optimiser_1,
-    optimiser_2,
-    optimiser_3,
+def train_models(
+    models_config,
     X_train,
     y_train,
     X_test,
@@ -190,177 +133,154 @@ def compare_models(
     criterion,
     n_epochs=10,
     batch_size=256,
-    model_name_1="Synaptic Resampling",
-    model_name_2="Base Dendritic",
-    model_name_3="Vanilla ANN",
-    track_variance=False,
 ):
-    print(f"Training {model_name_1} model...")
-    (
-        train_losses_1,
-        train_accuracy_1,
-        test_losses_1,
-        test_accuracy_1,
-        variance_of_weights_1,
-    ) = train(
-        X_train,
-        y_train,
-        X_test,
-        y_test,
-        model_1,
-        criterion,
-        optimiser_1,
-        n_epochs,
-        batch_size,
-        track_variance,
-    )
-    print(f"train loss {model_name_1} model {round(train_losses_1[-1], 4)}")
-    print(
-        f"train accuracy {model_name_1} model {round(train_accuracy_1[-1] * 100, 1)}%"
-    )
-    print(f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}%")
-
-    print(f"Training {model_name_2} model...")
-    (
-        train_losses_2,
-        train_accuracy_2,
-        test_losses_2,
-        test_accuracy_2,
-        variance_of_weights_2,
-    ) = train(
-        X_train,
-        y_train,
-        X_test,
-        y_test,
-        model_2,
-        criterion,
-        optimiser_2,
-        n_epochs,
-        batch_size,
-        track_variance,
-    )
-
-    print(f"train loss {model_name_2} model {round(train_losses_2[-1], 4)}")
-    print(
-        f"train accuracy {model_name_2} model {round(train_accuracy_2[-1] * 100, 1)}%"
-    )
-    print(f"test accuracy {model_name_2} model {round(test_accuracy_2[-1] * 100, 1)}%")
-
-    print(f"Training {model_name_3} model...")
-    (
-        train_losses_3,
-        train_accuracy_3,
-        test_losses_3,
-        test_accuracy_3,
-        variance_of_weights_3,
-    ) = train(
-        X_train,
-        y_train,
-        X_test,
-        y_test,
-        model_3,
-        criterion,
-        optimiser_3,
-        n_epochs,
-        batch_size,
-        track_variance,
-    )
-
-    # plot variance of grads
-    if track_variance:
-        # Handle variance_of_weights which is a list of lists (one list per batch, containing variances per layer)
-        # Compute mean variance across all layers for each batch
-        variance_weights_1_np = []
-        for batch_variances in variance_of_weights_1:
-            # batch_variances is a list of variances from each layer
-            # Convert each variance to float and compute mean
-            layer_variances = [
-                float(var.get()) if hasattr(var, "get") else float(var)
-                for var in batch_variances
-            ]
-            variance_weights_1_np.append(sum(layer_variances) / len(layer_variances))
-
-        variance_weights_2_np = []
-        for batch_variances in variance_of_weights_2:
-            # batch_variances is a list of variances from each layer
-            # Convert each variance to float and compute mean
-            layer_variances = [
-                float(var.get()) if hasattr(var, "get") else float(var)
-                for var in batch_variances
-            ]
-            variance_weights_2_np.append(sum(layer_variances) / len(layer_variances))
-
-        plt.plot(
-            variance_weights_1_np,
-            label=f"{model_name_1} Variance of Weights",
-            color="green",
-            linestyle="--",
+    """
+    Train one or multiple models dynamically.
+    
+    Args:
+        models_config: List of [model, optimizer, name] tuples
+        X_train, y_train: Training data
+        X_test, y_test: Test data
+        criterion: Loss function
+        n_epochs: Number of epochs
+        batch_size: Batch size
+    
+    Example:
+        models_config = [
+            [model1, optimizer1, "Synaptic Resampling"],
+            [model2, optimizer2, "Base Dendritic"],
+            [model3, optimizer3, "Vanilla ANN"]
+        ]
+    """
+    
+    if not models_config:
+        print("No models provided!")
+        return
+    
+    num_models = len(models_config)
+    results = []
+    
+    # Define colors for plotting
+    colors = ['green', 'blue', 'red', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+    
+    # print parameters of each model
+    for i, (model, optimizer, name) in enumerate(models_config):
+        print(f"Number of params: {model.num_params()} of {name} model")
+    
+    # Train each model
+    for i, (model, optimizer, name) in enumerate(models_config):
+        print(f"\nTraining {name} model...")
+        
+        train_losses, train_accuracy, test_losses, test_accuracy = train(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            model,
+            criterion,
+            optimizer,
+            n_epochs,
+            batch_size,
         )
-        plt.plot(
-            variance_weights_2_np,
-            label=f"{model_name_2} Variance of Weights",
-            color="blue",
-            linestyle="--",
-        )
-        plt.title("Variance of Weights over epochs")
+        
+        # Print mask updates if available
+        if hasattr(model, 'layers') and len(model.layers) > 0 and hasattr(model.layers[0], 'num_mask_updates'):
+            print(f"Number of mask updates: {model.layers[0].num_mask_updates}")
+        
+        # Print results for this model
+        print(f"Train loss {name} model: {round(train_losses[-1], 4)}")
+        print(f"Train accuracy {name} model: {round(train_accuracy[-1] * 100, 1)}%")
+        print(f"Test accuracy {name} model: {round(test_accuracy[-1] * 100, 1)}%")
+        
+        results.append({
+            'name': name,
+            'train_losses': train_losses,
+            'train_accuracy': train_accuracy,
+            'test_losses': test_losses,
+            'test_accuracy': test_accuracy,
+            'color': colors[i % len(colors)]
+        })
+    
+    # Plot results
+    if num_models == 1:
+        # Single model plotting (similar to train_one_model)
+        result = results[0]
+        
+        # Plot losses
+        plt.figure(figsize=(12, 5))
+        plt.subplot(1, 2, 1)
+        plt.plot(result['train_losses'], label="Train Loss", color="blue")
+        plt.plot(result['test_losses'], label="Test Loss", color="red")
+        plt.title(f"Loss - {result['name']}")
         plt.legend()
+        
+        # Plot accuracy
+        plt.subplot(1, 2, 2)
+        plt.plot(result['train_accuracy'], label="Train Accuracy", color="blue")
+        plt.plot(result['test_accuracy'], label="Test Accuracy", color="red")
+        plt.title(f"Accuracy - {result['name']}")
+        plt.legend()
+        
+        plt.tight_layout()
         plt.show()
+        
+    else:
+        # Multiple models comparison plotting
+       
+        # Plot accuracy comparison
+        plt.figure(figsize=(12, 5))
+        
+        # Accuracy plot
+        plt.subplot(1, 2, 1)
+        for result in results:
+            plt.plot(result['train_accuracy'], label=f"{result['name']} Train", 
+                    color=result['color'], linestyle="--")
+            plt.plot(result['test_accuracy'], label=f"{result['name']} Test", 
+                    color=result['color'])
+        plt.title("Accuracy over epochs")
+        plt.xlabel("Epoch")
+        plt.ylabel("Accuracy")
+        plt.legend()
+        
+        # Loss plot
+        plt.subplot(1, 2, 2)
+        for result in results:
+            plt.plot(result['train_losses'], label=f"{result['name']} Train", 
+                    color=result['color'], linestyle="--")
+            plt.plot(result['test_losses'], label=f"{result['name']} Test", 
+                    color=result['color'])
+        plt.title("Loss over epochs")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.legend()
+        
+        plt.tight_layout()
+        plt.show()
+    
+    # Print final comparison statistics
+    print("\n" + "="*60)
+    print("FINAL RESULTS SUMMARY")
+    print("="*60)
+    
+    if num_models == 1:
+        result = results[0]
+        print(f"Model: {result['name']}")
+        print(f"Train loss: {result['train_losses'][-1]:.3f}")
+        print(f"Test loss: {result['test_losses'][-1]:.3f}")
+        print(f"Train accuracy: {result['train_accuracy'][-1]:.3f}")
+        print(f"Test accuracy: {result['test_accuracy'][-1]:.3f}")
+    else:
+        # Print comparison table
+        print(f"{'Model':<20} {'Train Loss':<12} {'Test Loss':<12} {'Train Acc':<12} {'Test Acc':<12}")
+        print("-" * 68)
+        for result in results:
+            print(f"{result['name']:<20} {result['train_losses'][-1]:<12.4f} "
+                  f"{result['test_losses'][-1]:<12.4f} {result['train_accuracy'][-1]*100:<11.1f}% "
+                  f"{result['test_accuracy'][-1]*100:<11.1f}%")
 
-    # plot accuracy of vanilla model vs dendritic model
-    plt.plot(
-        train_accuracy_1, label=f"{model_name_1} Train", color="green", linestyle="--"
-    )
-    plt.plot(
-        train_accuracy_2, label=f"{model_name_2} Train", color="blue", linestyle="--"
-    )
-    plt.plot(
-        train_accuracy_3, label=f"{model_name_3} Train", color="red", linestyle="--"
-    )
-    plt.plot(test_accuracy_1, label=f"{model_name_1} Test", color="green")
-    plt.plot(test_accuracy_2, label=f"{model_name_2} Test", color="blue")
-    plt.plot(test_accuracy_3, label=f"{model_name_3} Test", color="red")
-    plt.title("Accuracy over epochs")
-    plt.legend()
-    plt.show()
-
-    # plot both models in comparison
-    plt.plot(
-        train_losses_1, label=f"{model_name_1} Train", color="green", linestyle="--"
-    )
-    plt.plot(
-        train_losses_2, label=f"{model_name_2} Train", color="blue", linestyle="--"
-    )
-    plt.plot(train_losses_3, label=f"{model_name_3} Train", color="red", linestyle="--")
-    plt.plot(test_losses_1, label=f"{model_name_1} Test", color="green")
-    plt.plot(test_losses_2, label=f"{model_name_2} Test", color="blue")
-    plt.plot(test_losses_3, label=f"{model_name_3} Test", color="red")
-    plt.title("Loss over epochs")
-    plt.legend()
-    plt.show()
-
-    # print final weight stats of dendritc layer
-    # weights_1 = cp.abs(model_1.params()[0].dendrite_W)
-    # weights_2 = cp.abs(model_2.params()[0].dendrite_W)
-
-    # print(f"weights_1: {weights_1.shape}")
-    # print(f"weights_2: {weights_2.shape}")
-    # print(f"mean weights_1: {cp.mean(weights_1)}")
-    # print(f"mean weights_2: {cp.mean(weights_2)}")
-    # print(f"std weights_1: {cp.std(weights_1)}")
-    # print(f"std weights_2: {cp.std(weights_2)}")
-
-    print(
-        f"train loss {model_name_1} model {round(train_losses_1[-1], 4)} vs {model_name_2} {round(train_losses_2[-1], 4)} vs {model_name_3} {round(train_losses_3[-1], 4)}"
-    )
-    print(
-        f"test loss {model_name_1} model {round(test_losses_1[-1], 4)} vs {model_name_2} {round(test_losses_2[-1], 4)} vs {model_name_3} {round(test_losses_3[-1], 4)}"
-    )
-    print(
-        f"train accuracy {model_name_1} model {round(train_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(train_accuracy_2[-1] * 100, 1)}% vs {model_name_3} {round(train_accuracy_3[-1] * 100, 1)}%"
-    )
-    print(
-        f"test accuracy {model_name_1} model {round(test_accuracy_1[-1] * 100, 1)}% vs {model_name_2} {round(test_accuracy_2[-1] * 100, 1)}% vs {model_name_3} {round(test_accuracy_3[-1] * 100, 1)}%"
-    )
+    print("="*60)
+    
+    return results
 
 
 def calculate_dendritic_spatial_entropy(
