@@ -13,7 +13,7 @@ except (ImportError, Exception) as e:
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import math
-
+from utils import load_mnist_data, load_cifar10_data
 
 def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
     n_samples = len(X)
@@ -126,13 +126,13 @@ def evaluate(
 
 def train_models(
     models_config,
-    X_train,
-    y_train,
-    X_test,
-    y_test,
+    dataset,
     criterion,
-    n_epochs=10,
+    n_epochs,
     batch_size=256,
+    subset_size=None,
+    verbose=False,
+    data_augmentation=False,
 ):
     """
     Train one or multiple models dynamically.
@@ -153,10 +153,7 @@ def train_models(
         ]
     """
     
-    if not models_config:
-        print("No models provided!")
-        return
-    
+
     num_models = len(models_config)
     results = []
     
@@ -165,7 +162,15 @@ def train_models(
     
     # print parameters of each model
     for i, (model, optimizer, name) in enumerate(models_config):
-        print(f"Number of params: {model.num_params()} of {name} model")
+        print(f"Number of params: {model.num_params(verbose=verbose)} of {name} model")
+    
+    if dataset in ["mnist", "fashion-mnist"]:
+        X_train, y_train, X_test, y_test = load_mnist_data(
+            dataset=dataset, subset_size=subset_size
+        )
+    elif dataset == "cifar10":
+        X_train, y_train, X_test, y_test = load_cifar10_data(subset_size=subset_size, data_augmentation=data_augmentation)
+    
     
     # Train each model
     for i, (model, optimizer, name) in enumerate(models_config):
