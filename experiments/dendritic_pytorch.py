@@ -14,28 +14,24 @@ print(f"Using device: {device}")
 
 
 class DendriticLayer(nn.Module):
-    """A sparse dendritic layer consisting of dendrites and somas"""
+    """A sparse dendritic layer consisting of dendrites only (no soma)"""
 
     def __init__(
         self,
         in_dim,
         n_neurons,
         n_dendrite_inputs,
-        n_dendrites,
         synaptic_resampling=True,
         percentage_resample=0.25,
         steps_to_resample=128,
         dendrite_bias=True,
-        soma_bias=True,
     ):
         super(DendriticLayer, self).__init__()
 
         self.in_dim = in_dim
         self.n_dendrite_inputs = n_dendrite_inputs
         self.n_neurons = n_neurons
-        self.n_dendrites = n_dendrites
-        self.n_soma_connections = n_dendrites * n_neurons
-        self.n_synaptic_connections = n_dendrite_inputs * n_dendrites * n_neurons
+        self.n_synaptic_connections = n_dendrite_inputs * n_neurons
 
         # Synaptic resampling parameters
         self.synaptic_resampling = synaptic_resampling
@@ -44,15 +40,9 @@ class DendriticLayer(nn.Module):
         self.num_mask_updates = 1
         self.update_steps = 0
 
-        # Dendrite layer (input -> dendrites)
-        self.dendrite_linear = nn.Linear(
-            in_dim, self.n_soma_connections, bias=dendrite_bias
-        )
+        # Dendrite layer (input -> output directly)
+        self.dendrite_linear = nn.Linear(in_dim, n_neurons, bias=dendrite_bias)
         self.dendrite_activation = nn.LeakyReLU(0.1)
-
-        # Soma layer (dendrites -> output)
-        self.soma_linear = nn.Linear(self.n_soma_connections, n_neurons, bias=soma_bias)
-        self.soma_activation = nn.LeakyReLU(0.1)
 
         # Initialize weights with He initialization
         nn.init.kaiming_normal_(
@@ -60,11 +50,6 @@ class DendriticLayer(nn.Module):
         )
         if dendrite_bias:
             nn.init.zeros_(self.dendrite_linear.bias)
-        nn.init.kaiming_normal_(
-            self.soma_linear.weight, mode="fan_in", nonlinearity="leaky_relu"
-        )
-        if soma_bias:
-            nn.init.zeros_(self.soma_linear.bias)
 
         # Create masks
         self._create_masks()
@@ -77,27 +62,17 @@ class DendriticLayer(nn.Module):
             self.register_backward_hook(self._backward_hook)
 
     def _create_masks(self):
-        """Create sparse connectivity masks for dendrites and soma"""
+        """Create sparse connectivity masks for dendrites"""
 
-        # Create masks on CPU first, then register as buffers so they move with the model
-        # Soma mask: step pattern where each neuron connects to its specific dendrites
-        # Shape: (n_neurons, n_soma_connections)
-        soma_mask = torch.zeros(self.n_neurons, self.n_soma_connections)
+        # Dendrite mask: each neuron connects to n_dendrite_inputs random inputs
+        # Shape: (n_neurons, in_dim)
+        dendrite_mask = torch.zeros(self.n_neurons, self.in_dim)
         for i in range(self.n_neurons):
-            start_idx = i * self.n_dendrites
-            end_idx = start_idx + self.n_dendrites
-            soma_mask[i, start_idx:end_idx] = 1
-
-        # Dendrite mask: each dendrite connects to n_dendrite_inputs random inputs
-        # Shape: (n_soma_connections, in_dim)
-        dendrite_mask = torch.zeros(self.n_soma_connections, self.in_dim)
-        for i in range(self.n_soma_connections):
             # Sample without replacement from possible inputs
             input_idx = torch.randperm(self.in_dim)[: self.n_dendrite_inputs]
             dendrite_mask[i, input_idx] = 1
 
-        # Register as buffers so they automatically move with the model
-        self.register_buffer("soma_mask", soma_mask)
+        # Register as buffer so it automatically moves with the model
         self.register_buffer("dendrite_mask", dendrite_mask)
 
     def _apply_masks(self):
@@ -105,18 +80,11 @@ class DendriticLayer(nn.Module):
         with torch.no_grad():
             # Apply dendrite mask (transpose because nn.Linear uses transposed weight matrix)
             self.dendrite_linear.weight.data *= self.dendrite_mask
-            # Apply soma mask (transpose because nn.Linear uses transposed weight matrix)
-            self.soma_linear.weight.data *= self.soma_mask
 
     def forward(self, x):
-        # Dendrite forward pass
+        # Dendrite forward pass (direct output)
         x = self.dendrite_linear(x)
         x = self.dendrite_activation(x)
-
-        # Soma forward pass
-        x = self.soma_linear(x)
-        x = self.soma_activation(x)
-
         return x
 
     def _backward_hook(self, module, grad_input, grad_output):
@@ -129,19 +97,14 @@ class DendriticLayer(nn.Module):
 
     def _resample_dendrites(self):
         """Implement synaptic resampling by replacing weak dendritic connections"""
-        # print("resampling dendrites")
-        # Calculate number of connections to remove per dendrite
-        n_to_remove_per_dendrite = int(
-            self.n_dendrite_inputs * self.percentage_resample
-        )
-        if n_to_remove_per_dendrite == 0:
+        # Calculate number of connections to remove per neuron
+        n_to_remove_per_neuron = int(self.n_dendrite_inputs * self.percentage_resample)
+        if n_to_remove_per_neuron == 0:
             return
 
         with torch.no_grad():
             # Get weight magnitudes (masked weights only)
-            weights = (
-                self.dendrite_linear.weight.data
-            )  # Shape: (n_soma_connections, in_dim)
+            weights = self.dendrite_linear.weight.data  # Shape: (n_neurons, in_dim)
             masked_weights = weights * self.dendrite_mask
             metric = torch.abs(masked_weights)
 
@@ -150,15 +113,13 @@ class DendriticLayer(nn.Module):
 
             # Sort by magnitude and get indices of weakest connections
             sorted_indices = torch.argsort(metric, dim=1)
-            cols_to_remove = sorted_indices[:, :n_to_remove_per_dendrite]
+            cols_to_remove = sorted_indices[:, :n_to_remove_per_neuron]
 
             # Create row indices for removal
-            num_dendrites = self.dendrite_mask.shape[0]
+            num_neurons = self.dendrite_mask.shape[0]
             mask_device = self.dendrite_mask.device  # Use device from mask buffer
-            rows_to_remove = torch.arange(num_dendrites, device=mask_device)[:, None]
-            rows_to_remove = rows_to_remove.repeat(
-                1, n_to_remove_per_dendrite
-            ).flatten()
+            rows_to_remove = torch.arange(num_neurons, device=mask_device)[:, None]
+            rows_to_remove = rows_to_remove.repeat(1, n_to_remove_per_neuron).flatten()
             cols_to_remove = cols_to_remove.flatten()
 
             # Sample new connections
@@ -172,7 +133,7 @@ class DendriticLayer(nn.Module):
                 self.dendrite_mask[rows_to_remove, newly_selected_cols] == 1
             )
 
-            # Check for duplicates within the same dendrite
+            # Check for duplicates within the same neuron
             proposed_flat_indices = rows_to_remove * self.in_dim + newly_selected_cols
             unique_indices, counts = torch.unique(
                 proposed_flat_indices, return_counts=True
@@ -208,27 +169,17 @@ class DendriticLayer(nn.Module):
             self.num_mask_updates += 1
 
     def num_params(self):
-        """Return number of logically active parameters (like notebook.py)"""
+        """Return number of logically active parameters"""
         active_dendrite_params = self.dendrite_mask.sum().item()
         dendrite_bias_params = (
             self.dendrite_linear.bias.numel()
             if self.dendrite_linear.bias is not None
             else 0
         )
-        active_soma_params = self.soma_mask.sum().item()
-        soma_bias_params = (
-            self.soma_linear.bias.numel() if self.soma_linear.bias is not None else 0
-        )
 
-        total = (
-            active_dendrite_params
-            + dendrite_bias_params
-            + active_soma_params
-            + soma_bias_params
-        )
+        total = active_dendrite_params + dendrite_bias_params
         print(
-            f"Active parameters: dendrite_W: {active_dendrite_params}, dendrite_b: {dendrite_bias_params}, "
-            f"soma_W: {active_soma_params}, soma_b: {soma_bias_params}"
+            f"Active parameters: dendrite_W: {active_dendrite_params}, dendrite_b: {dendrite_bias_params}"
         )
         return int(total)
 
@@ -241,7 +192,6 @@ class DendriticNet(nn.Module):
         in_dim,
         n_neurons,
         n_dendrite_inputs,
-        n_dendrites,
         n_classes,
         output_bias=True,
         **kwargs,
@@ -249,7 +199,7 @@ class DendriticNet(nn.Module):
         super(DendriticNet, self).__init__()
 
         self.dendritic_layer = DendriticLayer(
-            in_dim, n_neurons, n_dendrite_inputs, n_dendrites, **kwargs
+            in_dim, n_neurons, n_dendrite_inputs, **kwargs
         )
         self.output_layer = nn.Linear(n_neurons, n_classes, bias=output_bias)
 
@@ -350,53 +300,20 @@ class TransformerBlock(nn.Module):
         mlp_hidden_dim = int(embed_dim * mlp_ratio)
 
         if use_dendritic:
-            # Calculate dendritic parameters to match FF layer parameter count
-            # FF params: embed_dim * mlp_hidden_dim * 2 + mlp_hidden_dim + embed_dim
-            ff_params = embed_dim * mlp_hidden_dim * 2 + mlp_hidden_dim + embed_dim
-
-            # CORRECTED: DendriticLayer logical active parameter count (like notebook.py):
-            # Active dendrite weights: n_dendrite_inputs * n_dendrites * n_neurons
-            # Dendrite biases: n_dendrites * n_neurons
-            # Active soma weights: n_dendrites * n_neurons (each neuron connects to n_dendrites)
-            # Soma biases: n_neurons
-            #
-            # Total logical active: (n_dendrite_inputs * n_dendrites * n_neurons) +
-            #                      (n_dendrites * n_neurons) +
-            #                      (n_dendrites * n_neurons) +
-            #                      n_neurons
-            #                    = n_dendrites * n_neurons * (n_dendrite_inputs + 1 + 1) + n_neurons
-            #                    = n_dendrites * n_neurons * (n_dendrite_inputs + 2) + n_neurons
-
+            # Simplified dendritic layer configuration
             n_neurons = embed_dim  # Output dimension matches
             n_dendrite_inputs = 32  # Fixed as requested
 
-            # Solve: n_dendrites * n_neurons * (n_dendrite_inputs + 2) + n_neurons = ff_params
-            # n_dendrites * n_neurons * (n_dendrite_inputs + 2) = ff_params - n_neurons
-            # n_dendrites = (ff_params - n_neurons) / (n_neurons * (n_dendrite_inputs + 2))
-            n_dendrites = max(
-                1, (ff_params - n_neurons) // (n_neurons * (n_dendrite_inputs + 2))
-            )
-
-            # Calculate actual logical active parameters for verification
-            actual_active_params = (
-                n_dendrites * n_neurons * (n_dendrite_inputs + 2) + n_neurons
-            )
-
             print(
-                f"Dendritic MLP config: {n_dendrite_inputs} inputs, {n_dendrites} dendrites, {n_neurons} neurons"
+                f"Dendritic MLP config: {n_dendrite_inputs} inputs, {n_neurons} neurons"
             )
-            print(
-                f"Target FF params: {ff_params}, Actual active params: {actual_active_params}"
-            )
-            print(f"Active parameter difference: {actual_active_params - ff_params}")
 
             self.mlp = nn.Sequential(
                 DendriticLayer(
                     in_dim=embed_dim,
                     n_neurons=n_neurons,
                     n_dendrite_inputs=n_dendrite_inputs,
-                    n_dendrites=n_dendrites,
-                    synaptic_resampling=True,  # No resampling for ViT
+                    synaptic_resampling=True,
                     percentage_resample=0.15,
                     steps_to_resample=64,
                 ),
@@ -662,10 +579,6 @@ def train_model(
                             model.dendritic_layer.dendrite_linear.weight.grad *= (
                                 model.dendritic_layer.dendrite_mask
                             )
-                        if model.dendritic_layer.soma_linear.weight.grad is not None:
-                            model.dendritic_layer.soma_linear.weight.grad *= (
-                                model.dendritic_layer.soma_mask
-                            )
 
                 optimizer.step()
 
@@ -803,9 +716,9 @@ def main():
     np.random.seed(42)
 
     # Configuration
-    dataset = "cifar10"  # "mnist", "fashion-mnist", or "cifar10"
+    dataset = "fashion-mnist"  # "mnist", "fashion-mnist", or "cifar10"
     n_epochs = 8
-    learning_rate = 0.005
+    lr = 0.005
     batch_size = 256
 
     # Load data (get input dimensions and classes from dataset)
@@ -817,7 +730,6 @@ def main():
         in_channels = 1
         # Dendritic model config
         n_dendrite_inputs = 32
-        n_dendrites = 23
         n_neurons = 10
         # ViT config
         patch_size = 4  # 7x7 patches for 28x28 images
@@ -829,7 +741,6 @@ def main():
         in_channels = 3
         # Dendritic model config
         n_dendrite_inputs = 128
-        n_dendrites = 64
         n_neurons = 32
         # ViT config
         patch_size = 4  # 8x8 patches for 32x32 images
@@ -842,16 +753,15 @@ def main():
 
     # Comment out basic dendritic model for this experiment
     # # 1. Dendritic Neural Network
-    # dendritic_model = DendriticNet(
-    #     in_dim=in_dim,
-    #     n_neurons=n_neurons,
-    #     n_dendrite_inputs=n_dendrite_inputs,
-    #     n_dendrites=n_dendrites,
-    #     n_classes=n_classes,
-    #     synaptic_resampling=True,
-    #     percentage_resample=0.5,
-    #     steps_to_resample=128
-    # ).to(device)
+    dendritic_model = DendriticNet(
+        in_dim=in_dim,
+        n_neurons=n_neurons,
+        n_dendrite_inputs=n_dendrite_inputs,
+        n_classes=n_classes,
+        synaptic_resampling=True,
+        percentage_resample=0.5,
+        steps_to_resample=128
+    ).to(device)
 
     # 1 Dendritic Vision Transformer (Dendritic layers)
     vit_dendritic_model = VisionTransformer(
