@@ -16,7 +16,6 @@ Key Configuration:
 Architecture: DendriticLayer (soma disabled) → LeakyReLU → LinearLayer
 """
 
-import pandas as pd
 import json
 from datetime import datetime
 
@@ -251,7 +250,7 @@ def run_experiment(
                 )
 
                 # Train model
-                model_config = [[model, optimizer, f"Dendrite_Test"]]
+                model_config = [[model, optimizer, "Dendrite_Test"]]
 
                 experiment_results = train_models(
                     model_config,

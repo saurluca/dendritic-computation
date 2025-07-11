@@ -96,7 +96,7 @@ def compare_architectures(max_params=8000, dataset="fashion-mnist"):
     """
     Compare different dendritic architectures under the same parameter budget.
     """
-    print(f"🏗️  ARCHITECTURE COMPARISON")
+    print("🏗️  ARCHITECTURE COMPARISON")
     print(f"Budget: {max_params} parameters, Dataset: {dataset}")
     print("=" * 60)
 
@@ -175,10 +175,10 @@ def compare_architectures(max_params=8000, dataset="fashion-mnist"):
                 f"✅ Best accuracy: {best.test_accuracy:.3f} ({best.total_params} params)"
             )
         else:
-            print(f"❌ No valid configurations found within budget")
+            print("❌ No valid configurations found within budget")
 
     # Final comparison
-    print(f"\n📊 ARCHITECTURE COMPARISON SUMMARY")
+    print("\n📊 ARCHITECTURE COMPARISON SUMMARY")
     print("=" * 60)
     results_summary.sort(key=lambda x: x["test_accuracy"], reverse=True)
 
@@ -196,7 +196,7 @@ def quick_prototype_search(max_params=5000, dataset="mnist"):
     """
     Quick search for prototyping - fewer epochs, focused parameter ranges.
     """
-    print(f"⚡ QUICK PROTOTYPE SEARCH")
+    print("⚡ QUICK PROTOTYPE SEARCH")
     print(f"Budget: {max_params} parameters, Dataset: {dataset}")
     print("=" * 60)
 
@@ -235,7 +235,7 @@ def thorough_optimization(max_params=8000, dataset="fashion-mnist"):
     """
     Thorough search for final model - more epochs, comprehensive parameter space.
     """
-    print(f"🔬 THOROUGH OPTIMIZATION")
+    print("🔬 THOROUGH OPTIMIZATION")
     print(f"Budget: {max_params} parameters, Dataset: {dataset}")
     print("=" * 60)
 
@@ -305,7 +305,7 @@ def find_pareto_optimal(dataset="fashion-mnist", max_budget=10000):
     """
     Find Pareto optimal solutions: best accuracy vs parameter count trade-offs.
     """
-    print(f"📈 PARETO OPTIMIZATION")
+    print("📈 PARETO OPTIMIZATION")
     print(f"Dataset: {dataset}, Max budget: {max_budget}")
     print("=" * 60)
 
@@ -326,7 +326,7 @@ def find_pareto_optimal(dataset="fashion-mnist", max_budget=10000):
             )
 
     # Display Pareto front
-    print(f"\n📊 PARETO FRONT: Accuracy vs Parameters")
+    print("\n📊 PARETO FRONT: Accuracy vs Parameters")
     print("=" * 60)
     for result in pareto_results:
         efficiency = result["accuracy"] / (
@@ -379,7 +379,7 @@ def main():
         )
 
     print(
-        f"\n🎉 All examples completed! Check the generated JSON files for detailed results."
+        "\n🎉 All examples completed! Check the generated JSON files for detailed results."
     )
 
 

@@ -55,10 +55,10 @@ def grid_search(
                 f"Loaded {len(existing_results)} existing results from {results_file}"
             )
         except (json.JSONDecodeError, FileNotFoundError):
-            print(f"No existing results found or file corrupted, starting fresh")
+            print("No existing results found or file corrupted, starting fresh")
             existing_results = []
     else:
-        print(f"No existing results file found, starting fresh")
+        print("No existing results file found, starting fresh")
 
     # Load data
     if dataset in ["mnist", "fashion-mnist"]:

@@ -660,7 +660,7 @@ def analyze_accuracy_thresholds(grouped_results):
                 if len(threshold_models) > 0
                 else True
             ):
-                print(f"\n  (Optimistic estimate - using mean accuracy only):")
+                print("\n  (Optimistic estimate - using mean accuracy only):")
                 print(
                     f"    Accuracy: {smallest_optimistic['accuracy']:.4f} ± {smallest_optimistic['accuracy_std']:.4f}"
                 )

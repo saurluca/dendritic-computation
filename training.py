@@ -674,7 +674,7 @@ def plot_dendritic_weights_full_model(model, input_image, image_shape=(28, 28)):
     plt.show()
 
     # Print some statistics
-    print(f"\n=== Full Model Dendritic Statistics ===")
+    print("\n=== Full Model Dendritic Statistics ===")
     print(f"Total parameters: {dendrite_weights.size}")
     print(f"Active parameters: {np.sum(dendrite_mask)}")
     print(f"Sparsity: {1 - np.sum(dendrite_mask) / dendrite_mask.size:.4f}")
@@ -710,7 +710,7 @@ def print_network_entropy(model, image_shape=(28, 28)):
     spatial_entropies = []
     weight_entropies = []
 
-    print(f"=== Network Entropy Analysis ===")
+    print("=== Network Entropy Analysis ===")
     print(f"Dendritic Layer: {n_neurons} neurons, {n_dendrites} dendrites each")
     print(f"{'Neuron':<6} {'Spatial Entropy':<15} {'Weight Entropy':<15}")
 

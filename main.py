@@ -17,8 +17,6 @@ from modules import (
     Sequential,
     DendriticLayer,
     LinearLayer,
-    BatchNormalization,
-    Dropout,
 )
 from training import train_models
 

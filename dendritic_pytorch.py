@@ -7,7 +7,6 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-import math
 
 # Set device for data loading
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
