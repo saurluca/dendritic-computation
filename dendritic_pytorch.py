@@ -26,6 +26,8 @@ class DendriticLayer(nn.Module):
         synaptic_resampling=True,
         percentage_resample=0.25,
         steps_to_resample=128,
+        dendrite_bias=True,
+        soma_bias=True,
     ):
         super(DendriticLayer, self).__init__()
         
@@ -44,18 +46,20 @@ class DendriticLayer(nn.Module):
         self.update_steps = 0
         
         # Dendrite layer (input -> dendrites)
-        self.dendrite_linear = nn.Linear(in_dim, self.n_soma_connections)
+        self.dendrite_linear = nn.Linear(in_dim, self.n_soma_connections, bias=dendrite_bias)
         self.dendrite_activation = nn.LeakyReLU(0.1)
         
         # Soma layer (dendrites -> output)
-        self.soma_linear = nn.Linear(self.n_soma_connections, n_neurons)
+        self.soma_linear = nn.Linear(self.n_soma_connections, n_neurons, bias=soma_bias)
         self.soma_activation = nn.LeakyReLU(0.1)
         
         # Initialize weights with He initialization
         nn.init.kaiming_normal_(self.dendrite_linear.weight, mode='fan_in', nonlinearity='leaky_relu')
-        # nn.init.zeros_(self.dendrite_linear.bias)
+        if dendrite_bias:
+            nn.init.zeros_(self.dendrite_linear.bias)
         nn.init.kaiming_normal_(self.soma_linear.weight, mode='fan_in', nonlinearity='leaky_relu')
-        # nn.init.zeros_(self.soma_linear.bias)
+        if soma_bias:
+            nn.init.zeros_(self.soma_linear.bias)
         
         # Create masks
         self._create_masks()
@@ -187,9 +191,9 @@ class DendriticLayer(nn.Module):
     def num_params(self):
         """Return number of logically active parameters (like notebook.py)"""
         active_dendrite_params = self.dendrite_mask.sum().item()
-        dendrite_bias_params = self.dendrite_linear.bias.numel()
+        dendrite_bias_params = self.dendrite_linear.bias.numel() if self.dendrite_linear.bias is not None else 0
         active_soma_params = self.soma_mask.sum().item()
-        soma_bias_params = self.soma_linear.bias.numel()
+        soma_bias_params = self.soma_linear.bias.numel() if self.soma_linear.bias is not None else 0
         
         total = active_dendrite_params + dendrite_bias_params + active_soma_params + soma_bias_params
         print(f"Active parameters: dendrite_W: {active_dendrite_params}, dendrite_b: {dendrite_bias_params}, "
@@ -200,17 +204,18 @@ class DendriticLayer(nn.Module):
 class DendriticNet(nn.Module):
     """Complete neural network with dendritic layer"""
     
-    def __init__(self, in_dim, n_neurons, n_dendrite_inputs, n_dendrites, n_classes, **kwargs):
+    def __init__(self, in_dim, n_neurons, n_dendrite_inputs, n_dendrites, n_classes, output_bias=True, **kwargs):
         super(DendriticNet, self).__init__()
         
         self.dendritic_layer = DendriticLayer(
             in_dim, n_neurons, n_dendrite_inputs, n_dendrites, **kwargs
         )
-        self.output_layer = nn.Linear(n_neurons, n_classes)
+        self.output_layer = nn.Linear(n_neurons, n_classes, bias=output_bias)
         
         # Initialize output layer
         nn.init.kaiming_normal_(self.output_layer.weight, mode='fan_in', nonlinearity='leaky_relu')
-        # nn.init.zeros_(self.output_layer.bias)
+        if output_bias:
+            nn.init.zeros_(self.output_layer.bias)
     
     def forward(self, x):
         x = self.dendritic_layer(x)
