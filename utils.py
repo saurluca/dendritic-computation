@@ -74,7 +74,7 @@ def load_mnist_data(
         # Standard MNIST normalization values
         mnist_mean = 0.1307
         mnist_std = 0.3081
-        
+
         # Convert to float32 and normalize to [0,1]
         X_train = X_train.astype(np.float32) / 255.0
         X_test = X_test.astype(np.float32) / 255.0
@@ -92,22 +92,34 @@ def load_mnist_data(
 
     # Apply data augmentation to training data only
     if data_augmentation:
-        print("Applying data augmentation to training data only (horizontal/vertical flips)...")
-        
+        print(
+            "Applying data augmentation to training data only (horizontal/vertical flips)..."
+        )
+
         # Reshape to 2D images for augmentation
         X_train_img = X_train.reshape(-1, 28, 28)
-        
+
         # Create augmented versions for training data only
         X_train_h_flip = cp.flip(X_train_img, axis=2)  # Horizontal flip
         X_train_v_flip = cp.flip(X_train_img, axis=1)  # Vertical flip
         X_train_hv_flip = cp.flip(cp.flip(X_train_img, axis=1), axis=2)  # Both flips
-        
+
         # Concatenate all versions for training data
-        X_train = cp.concatenate([X_train_img, X_train_h_flip, X_train_v_flip, X_train_hv_flip], axis=0)
-        
+        X_train = cp.concatenate(
+            [X_train_img, X_train_h_flip, X_train_v_flip, X_train_hv_flip], axis=0
+        )
+
         # Replicate training labels 4 times
-        y_train = cp.concatenate([cp.array(y_train), cp.array(y_train), cp.array(y_train), cp.array(y_train)], axis=0)
-        
+        y_train = cp.concatenate(
+            [
+                cp.array(y_train),
+                cp.array(y_train),
+                cp.array(y_train),
+                cp.array(y_train),
+            ],
+            axis=0,
+        )
+
         print(f"Augmented training data shape: {X_train.shape}")
         print(f"Test data shape (unchanged): {X_test.shape}")
 
@@ -149,7 +161,13 @@ def load_mnist_data(
     return X_train, y_train, X_test, y_test
 
 
-def load_cifar10_data(normalize=True, flatten=True, one_hot=True, subset_size=None, data_augmentation=False):
+def load_cifar10_data(
+    normalize=True,
+    flatten=True,
+    one_hot=True,
+    subset_size=None,
+    data_augmentation=False,
+):
     """
     Download and load the CIFAR-10 dataset.
     Args:
@@ -183,7 +201,7 @@ def load_cifar10_data(normalize=True, flatten=True, one_hot=True, subset_size=No
         # Standard CIFAR-10 normalization values (per channel)
         cifar10_mean = np.array([0.4914, 0.4822, 0.4465])
         cifar10_std = np.array([0.2470, 0.2435, 0.2616])
-        
+
         # Convert to float32 and normalize to [0,1]
         X_train = X_train.astype(np.float32) / 255.0
         X_test = X_test.astype(np.float32) / 255.0
@@ -205,25 +223,37 @@ def load_cifar10_data(normalize=True, flatten=True, one_hot=True, subset_size=No
 
     # Apply data augmentation to training data only
     if data_augmentation:
-        print("Applying data augmentation to training data only (horizontal/vertical flips)...")
-        
+        print(
+            "Applying data augmentation to training data only (horizontal/vertical flips)..."
+        )
+
         # Reshape to 3D images for augmentation (height, width, channels)
         if normalize:
             X_train_img = X_train  # Already reshaped above
         else:
             X_train_img = X_train.reshape(-1, 32, 32, 3)
-        
+
         # Create augmented versions for training data only
         X_train_h_flip = cp.flip(X_train_img, axis=2)  # Horizontal flip
         X_train_v_flip = cp.flip(X_train_img, axis=1)  # Vertical flip
         X_train_hv_flip = cp.flip(cp.flip(X_train_img, axis=1), axis=2)  # Both flips
-        
+
         # Concatenate all versions for training data
-        X_train = cp.concatenate([X_train_img, X_train_h_flip, X_train_v_flip, X_train_hv_flip], axis=0)
-        
+        X_train = cp.concatenate(
+            [X_train_img, X_train_h_flip, X_train_v_flip, X_train_hv_flip], axis=0
+        )
+
         # Replicate training labels 4 times
-        y_train = cp.concatenate([cp.array(y_train), cp.array(y_train), cp.array(y_train), cp.array(y_train)], axis=0)
-        
+        y_train = cp.concatenate(
+            [
+                cp.array(y_train),
+                cp.array(y_train),
+                cp.array(y_train),
+                cp.array(y_train),
+            ],
+            axis=0,
+        )
+
         print(f"Augmented training data shape: {X_train.shape}")
         print(f"Test data shape (unchanged): {X_test.shape}")
     else:

@@ -310,7 +310,7 @@ class DendriticLayer:
         x = self.soma_activation(x)
         return x
 
-    def backward(self, grad):        
+    def backward(self, grad):
         grad = self.soma_activation.backward(grad)
 
         # soma back pass, multiply with mask to keep only valid gradients
@@ -326,7 +326,7 @@ class DendriticLayer:
         dendrite_grad = soma_grad @ self.dendrite_W
 
         self.update_steps += 1
-        
+
         # resample dendrites every steps_to_resample steps
         if self.synaptic_resampling and self.update_steps >= self.steps_to_resample:
             # reset step counter
@@ -338,41 +338,41 @@ class DendriticLayer:
     def resample_dendrites(self):
         """
         Implements synaptic resampling by replacing weak dendritic connections with new random ones.
-        
-        This method mimics synaptic plasticity in biological neurons, where weak or unused 
+
+        This method mimics synaptic plasticity in biological neurons, where weak or unused
         synaptic connections are pruned and replaced with new connections to explore different
         input patterns. The resampling helps prevent overfitting and maintains exploration
         capabilities during training.
-        
+
         Algorithm Overview:
-        1. **Connection Removal**: Identifies the weakest connections (lowest weight magnitude) 
+        1. **Connection Removal**: Identifies the weakest connections (lowest weight magnitude)
            for removal based on `self.percentage_resample`
         2. **One-shot Resampling**: Randomly samples new input connections for each removed connection
         3. **Conflict Detection**: Checks for conflicts with existing connections and duplicate
            assignments within the same dendrite
         4. **Successful Swaps**: Applies only valid swaps that don't create conflicts
         5. **Verification**: Ensures the dendritic structure integrity is maintained
-        
+
         The method operates efficiently by:
         - Using vectorized operations for all dendrites simultaneously
         - Implementing one-shot resampling rather than iterative attempts
         - Only applying successful swaps to avoid invalid states
         - Maintaining sparsity through the dendrite_mask
-        
+
         Side Effects:
             - Updates self.dendrite_mask to reflect new connection patterns
             - Reinitializes weights for new connections using He initialization
             - Zeros out weights and gradients for removed connections
             - Increments self.num_mask_updates counter
-        
+
         Raises:
             AssertionError: If resampling violates dendritic structure constraints
                 - Each dendrite must maintain exactly n_dendrite_inputs connections
                 - Total active connections must equal n_synaptic_connections
-        
+
         Returns:
             None: Method modifies the layer's state in-place
-            
+
         Note:
             - Called automatically during backward pass if synaptic_resampling=True
             - Early returns if percentage_resample results in 0 connections to remove
@@ -383,7 +383,7 @@ class DendriticLayer:
         n_to_remove_per_dendrite = int(
             self.n_dendrite_inputs * self.percentage_resample
         )
-        if n_to_remove_per_dendrite == 0: 
+        if n_to_remove_per_dendrite == 0:
             return
 
         num_dendrites = self.dendrite_mask.shape[0]
@@ -401,9 +401,11 @@ class DendriticLayer:
         # dummy array of dendrite indices shape (num_dendrites, 1)
         rows_to_remove = cp.arange(num_dendrites)[:, cp.newaxis]
         # dummy array of shape (num_dendrites , n_to_remove_per_dendrite), flattened
-        removed_dendrite_indices = rows_to_remove.repeat(n_to_remove_per_dendrite, axis=1).flatten()
+        removed_dendrite_indices = rows_to_remove.repeat(
+            n_to_remove_per_dendrite, axis=1
+        ).flatten()
         removed_input_indices = cols_to_remove.flatten()
-        
+
         # removed_input_indices, contins the indices of the inputs to remove/resample
         # for each dendrite in a flattened array
 
@@ -413,8 +415,8 @@ class DendriticLayer:
         # sample n_connections_to_resample new inputs between 0 and in_dim
         newly_selected_input_indices = cp.random.randint(
             0, self.in_dim, size=n_connections_to_resample, dtype=int
-        ) # shape (n_connections_to_resample, 1)
-        
+        )  # shape (n_connections_to_resample, 1)
+
         # --- Part 3: Conflict Detection ---
         # check if new inputs are already existing in the same dendrite
         conflict_with_existing = (
@@ -426,19 +428,18 @@ class DendriticLayer:
         # by multiplying dendrite index with in_dim and adding the input index,
         # we get a unique index for each proposed new connection, in  the same dendrite
         proposed_flat_indices = (
-            removed_dendrite_indices * self.in_dim
-            + newly_selected_input_indices
-        ) # shape (n_connections_to_resample, 1)
-        
+            removed_dendrite_indices * self.in_dim + newly_selected_input_indices
+        )  # shape (n_connections_to_resample, 1)
+
         # count number of occurences of each index
         counts = cp.bincount(
             proposed_flat_indices.astype(int),
             minlength=num_dendrites * self.in_dim,
-        ) # shape (num_dendrites * in_dim, 1)
-        
+        )  # shape (num_dendrites * in_dim, 1)
+
         # check if index is duplicated, in the same dendrite
         is_duplicate_flat = counts[proposed_flat_indices.astype(int)] > 1
-        
+
         # flag as problematic if either conflict or duplicate
         is_problematic = conflict_with_existing | is_duplicate_flat
         # flag as successful if not problematic
@@ -450,11 +451,11 @@ class DendriticLayer:
         # if no successful swaps, return
         if dendrites_to_swap.size == 0:
             return
-        
+
         # get indices of old and new inputs to remove and add
         old_inputs_to_remove = removed_input_indices[is_successful]
         new_inputs_to_add = newly_selected_input_indices[is_successful]
-        
+
         # Update mask: remove old connections and add new ones
         self.dendrite_mask[dendrites_to_swap, old_inputs_to_remove] = 0
         self.dendrite_mask[dendrites_to_swap, new_inputs_to_add] = 1
@@ -463,7 +464,7 @@ class DendriticLayer:
         self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = cp.random.randn(
             dendrites_to_swap.shape[0]
         ) * cp.sqrt(2.0 / self.in_dim)
-        
+
         # Apply mask to ensure only active connections have non-zero weights
         self.dendrite_W = self.dendrite_W * self.dendrite_mask
         # Also zero out gradients for removed connections
@@ -483,7 +484,7 @@ class DendriticLayer:
         ), (
             f"Resampling failed: not all dendrites have {self.n_synaptic_connections} connections in total."
         )
-        
+
     def num_params(self):
         print(
             f"\nparameters: dendrite_mask: {cp.sum(self.dendrite_mask)}, dendrite_b: {self.dendrite_b.size}, soma_W: {cp.sum(self.soma_mask)}, soma_b: {self.soma_b.size}"
@@ -867,7 +868,7 @@ dataset = "mnist"  # "mnist", "fashion-mnist"
 # config
 n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.002  # 0.002
-v_lr = 0.002  # 0.002 
+v_lr = 0.002  # 0.002
 b_lr = 0.002  # 0.002
 batch_size = 256
 
@@ -880,7 +881,7 @@ n_dendrites = 23  # 23
 n_neurons = 10  # 10
 
 # vanilla model config
-hidden_dim = 10 # 10
+hidden_dim = 10  # 10
 
 model_name_1 = "Synaptic Resampling"
 model_name_2 = "Base Dendritic"
@@ -897,8 +898,8 @@ model_1 = Sequential(
             n_dendrite_inputs=n_dendrite_inputs,
             n_dendrites=n_dendrites,
             synaptic_resampling=True,
-            percentage_resample=0.5, # 0.5
-            steps_to_resample=128, # 128
+            percentage_resample=0.5,  # 0.5
+            steps_to_resample=128,  # 128
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),

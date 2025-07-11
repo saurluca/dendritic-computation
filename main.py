@@ -1,6 +1,7 @@
 # %%
 try:
     import cupy as cp
+
     # Test if CuPy can actually access CUDA and random number generator
     cp.cuda.Device(0).compute_capability
     cp.random.seed(1)  # Test if random number generator works
@@ -30,7 +31,7 @@ subset_size = None
 data_augmentation = True
 
 # config
-n_epochs = 50 # 15 MNIST, 20 Fashion-MNIST
+n_epochs = 50  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.002  # 0.003
 weight_decay = 0.01  # 0.001
 batch_size = 256
@@ -46,10 +47,10 @@ else:
 # dendriticmodel config
 n_dendrite_inputs = 64  # 31 / 128
 n_dendrites = 512  # 23 / 6
-n_neurons = 64 # 10 / 10
+n_neurons = 64  # 10 / 10
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
-# model to compare 
+# model to compare
 model_1 = Sequential(
     [
         DendriticLayer(
@@ -107,11 +108,10 @@ model_3 = Sequential(
         LinearLayer(in_dim, 23, bias=False),
         LeakyReLU(),
         LinearLayer(23, 15, bias=False),
-        LeakyReLU(),        
+        LeakyReLU(),
         LinearLayer(15, n_classes),
     ]
 )
-
 
 
 criterion = CrossEntropy()
@@ -125,7 +125,7 @@ models_config = [
     [model_3, v_optimiser, "vANN"],
 ]
 
-results=train_models(
+results = train_models(
     models_config,
     dataset,
     criterion,
@@ -133,4 +133,3 @@ results=train_models(
     data_augmentation=data_augmentation,
     batch_size=batch_size,
 )
-

@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import math
 from utils import load_mnist_data, load_cifar10_data
 
+
 def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
     n_samples = len(X)
     # shuffle data
@@ -136,7 +137,7 @@ def train_models(
 ):
     """
     Train one or multiple models dynamically.
-    
+
     Args:
         models_config: List of [model, optimizer, name] tuples
         X_train, y_train: Training data
@@ -144,7 +145,7 @@ def train_models(
         criterion: Loss function
         n_epochs: Number of epochs
         batch_size: Batch size
-    
+
     Example:
         models_config = [
             [model1, optimizer1, "Synaptic Resampling"],
@@ -152,30 +153,41 @@ def train_models(
             [model3, optimizer3, "Vanilla ANN"]
         ]
     """
-    
 
     num_models = len(models_config)
     results = []
-    
+
     # Define colors for plotting
-    colors = ['green', 'blue', 'red', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
-    
+    colors = [
+        "green",
+        "blue",
+        "red",
+        "orange",
+        "purple",
+        "brown",
+        "pink",
+        "gray",
+        "olive",
+        "cyan",
+    ]
+
     # print parameters of each model
     for i, (model, optimizer, name) in enumerate(models_config):
         print(f"Number of params: {model.num_params(verbose=verbose)} of {name} model")
-    
+
     if dataset in ["mnist", "fashion-mnist"]:
         X_train, y_train, X_test, y_test = load_mnist_data(
             dataset=dataset, subset_size=subset_size
         )
     elif dataset == "cifar10":
-        X_train, y_train, X_test, y_test = load_cifar10_data(subset_size=subset_size, data_augmentation=data_augmentation)
-    
-    
+        X_train, y_train, X_test, y_test = load_cifar10_data(
+            subset_size=subset_size, data_augmentation=data_augmentation
+        )
+
     # Train each model
     for i, (model, optimizer, name) in enumerate(models_config):
         print(f"\nTraining {name} model...")
-        
+
         train_losses, train_accuracy, test_losses, test_accuracy = train(
             X_train,
             y_train,
@@ -187,86 +199,106 @@ def train_models(
             n_epochs,
             batch_size,
         )
-        
+
         # Print mask updates if available
-        if hasattr(model, 'layers') and len(model.layers) > 0 and hasattr(model.layers[0], 'num_mask_updates'):
+        if (
+            hasattr(model, "layers")
+            and len(model.layers) > 0
+            and hasattr(model.layers[0], "num_mask_updates")
+        ):
             print(f"Number of mask updates: {model.layers[0].num_mask_updates}")
-        
+
         # Print results for this model
         print(f"Train loss {name} model: {round(train_losses[-1], 4)}")
         print(f"Train accuracy {name} model: {round(train_accuracy[-1] * 100, 1)}%")
         print(f"Test accuracy {name} model: {round(test_accuracy[-1] * 100, 1)}%")
-        
-        results.append({
-            'name': name,
-            'train_losses': train_losses,
-            'train_accuracy': train_accuracy,
-            'test_losses': test_losses,
-            'test_accuracy': test_accuracy,
-            'color': colors[i % len(colors)]
-        })
-    
+
+        results.append(
+            {
+                "name": name,
+                "train_losses": train_losses,
+                "train_accuracy": train_accuracy,
+                "test_losses": test_losses,
+                "test_accuracy": test_accuracy,
+                "color": colors[i % len(colors)],
+            }
+        )
+
     # Plot results
     if num_models == 1:
         # Single model plotting (similar to train_one_model)
         result = results[0]
-        
+
         # Plot losses
         plt.figure(figsize=(12, 5))
         plt.subplot(1, 2, 1)
-        plt.plot(result['train_losses'], label="Train Loss", color="blue")
-        plt.plot(result['test_losses'], label="Test Loss", color="red")
+        plt.plot(result["train_losses"], label="Train Loss", color="blue")
+        plt.plot(result["test_losses"], label="Test Loss", color="red")
         plt.title(f"Loss - {result['name']}")
         plt.legend()
-        
+
         # Plot accuracy
         plt.subplot(1, 2, 2)
-        plt.plot(result['train_accuracy'], label="Train Accuracy", color="blue")
-        plt.plot(result['test_accuracy'], label="Test Accuracy", color="red")
+        plt.plot(result["train_accuracy"], label="Train Accuracy", color="blue")
+        plt.plot(result["test_accuracy"], label="Test Accuracy", color="red")
         plt.title(f"Accuracy - {result['name']}")
         plt.legend()
-        
+
         plt.tight_layout()
         plt.show()
-        
+
     else:
         # Multiple models comparison plotting
-       
+
         # Plot accuracy comparison
         plt.figure(figsize=(12, 5))
-        
+
         # Accuracy plot
         plt.subplot(1, 2, 1)
         for result in results:
-            plt.plot(result['train_accuracy'], label=f"{result['name']} Train", 
-                    color=result['color'], linestyle="--")
-            plt.plot(result['test_accuracy'], label=f"{result['name']} Test", 
-                    color=result['color'])
+            plt.plot(
+                result["train_accuracy"],
+                label=f"{result['name']} Train",
+                color=result["color"],
+                linestyle="--",
+            )
+            plt.plot(
+                result["test_accuracy"],
+                label=f"{result['name']} Test",
+                color=result["color"],
+            )
         plt.title("Accuracy over epochs")
         plt.xlabel("Epoch")
         plt.ylabel("Accuracy")
         plt.legend()
-        
+
         # Loss plot
         plt.subplot(1, 2, 2)
         for result in results:
-            plt.plot(result['train_losses'], label=f"{result['name']} Train", 
-                    color=result['color'], linestyle="--")
-            plt.plot(result['test_losses'], label=f"{result['name']} Test", 
-                    color=result['color'])
+            plt.plot(
+                result["train_losses"],
+                label=f"{result['name']} Train",
+                color=result["color"],
+                linestyle="--",
+            )
+            plt.plot(
+                result["test_losses"],
+                label=f"{result['name']} Test",
+                color=result["color"],
+            )
         plt.title("Loss over epochs")
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.legend()
-        
+
         plt.tight_layout()
         plt.show()
-    
+
     # Print final comparison statistics
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("FINAL RESULTS SUMMARY")
-    print("="*60)
-    
+    print("=" * 60)
+
     if num_models == 1:
         result = results[0]
         print(f"Model: {result['name']}")
@@ -276,15 +308,19 @@ def train_models(
         print(f"Test accuracy: {result['test_accuracy'][-1]:.3f}")
     else:
         # Print comparison table
-        print(f"{'Model':<20} {'Train Loss':<12} {'Test Loss':<12} {'Train Acc':<12} {'Test Acc':<12}")
+        print(
+            f"{'Model':<20} {'Train Loss':<12} {'Test Loss':<12} {'Train Acc':<12} {'Test Acc':<12}"
+        )
         print("-" * 68)
         for result in results:
-            print(f"{result['name']:<20} {result['train_losses'][-1]:<12.4f} "
-                  f"{result['test_losses'][-1]:<12.4f} {result['train_accuracy'][-1]*100:<11.1f}% "
-                  f"{result['test_accuracy'][-1]*100:<11.1f}%")
+            print(
+                f"{result['name']:<20} {result['train_losses'][-1]:<12.4f} "
+                f"{result['test_losses'][-1]:<12.4f} {result['train_accuracy'][-1] * 100:<11.1f}% "
+                f"{result['test_accuracy'][-1] * 100:<11.1f}%"
+            )
 
-    print("="*60)
-    
+    print("=" * 60)
+
     return results
 
 

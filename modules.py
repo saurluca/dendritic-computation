@@ -146,7 +146,7 @@ class BatchNormalization:
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True):
         """
         Batch Normalization layer.
-        
+
         Args:
             num_features (int): Number of features in the input
             eps (float): Small constant for numerical stability. Default is 1e-5.
@@ -158,7 +158,7 @@ class BatchNormalization:
         self.momentum = momentum
         self.affine = affine
         self.training = True
-        
+
         # Learnable parameters
         if self.affine:
             self.gamma = cp.ones(num_features)  # Scale parameter
@@ -168,11 +168,11 @@ class BatchNormalization:
         else:
             self.gamma = None
             self.beta = None
-            
+
         # Running statistics (for inference)
         self.running_mean = cp.zeros(num_features)
         self.running_var = cp.ones(num_features)
-        
+
         # Cache for backward pass
         self.input_normalized = None
         self.input_centered = None
@@ -180,22 +180,22 @@ class BatchNormalization:
         self.batch_mean = None
         self.batch_var = None
         self.batch_size = None
-        
+
     def train(self):
         """Set the layer to training mode."""
         self.training = True
-        
+
     def eval(self):
         """Set the layer to evaluation mode."""
         self.training = False
-        
+
     def forward(self, x):
         """
         Forward pass of batch normalization.
-        
+
         Args:
             x: Input tensor of shape (batch_size, num_features) or (batch_size, ...)
-            
+
         Returns:
             Normalized output tensor
         """
@@ -204,18 +204,22 @@ class BatchNormalization:
         if x.ndim > 2:
             # Flatten all dimensions except the feature dimension
             x = x.reshape(-1, self.num_features)
-        
+
         self.batch_size = x.shape[0]
-        
+
         if self.training:
             # Training mode: use batch statistics
             self.batch_mean = cp.mean(x, axis=0)
             self.batch_var = cp.var(x, axis=0)
-            
+
             # Update running statistics
-            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * self.batch_mean
-            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * self.batch_var
-            
+            self.running_mean = (
+                1 - self.momentum
+            ) * self.running_mean + self.momentum * self.batch_mean
+            self.running_var = (
+                1 - self.momentum
+            ) * self.running_var + self.momentum * self.batch_var
+
             # Normalize
             self.input_centered = x - self.batch_mean
             self.std = cp.sqrt(self.batch_var + self.eps)
@@ -225,26 +229,26 @@ class BatchNormalization:
             self.input_centered = x - self.running_mean
             self.std = cp.sqrt(self.running_var + self.eps)
             self.input_normalized = self.input_centered / self.std
-            
+
         # Apply affine transformation if enabled
         if self.affine:
             output = self.gamma * self.input_normalized + self.beta
         else:
             output = self.input_normalized
-            
+
         # Reshape back to original shape if needed
         if len(original_shape) > 2:
             output = output.reshape(original_shape)
-            
+
         return output
-        
+
     def backward(self, grad):
         """
         Backward pass of batch normalization.
-        
+
         Args:
             grad: Gradient from the next layer
-            
+
         Returns:
             Gradient with respect to input
         """
@@ -252,54 +256,64 @@ class BatchNormalization:
         original_shape = grad.shape
         if grad.ndim > 2:
             grad = grad.reshape(-1, self.num_features)
-            
+
         if self.affine:
             # Gradients with respect to gamma and beta
             self.dgamma = cp.sum(grad * self.input_normalized, axis=0)
             self.dbeta = cp.sum(grad, axis=0)
-            
+
             # Scale gradient by gamma
             grad = grad * self.gamma
-            
+
         if self.training:
             # Training mode: compute gradients with respect to input
             # This is the standard batch normalization backward pass
-            
+
             # Gradient with respect to normalized input
             grad_normalized = grad
-            
+
             # Gradient with respect to variance
-            grad_var = cp.sum(grad_normalized * self.input_centered, axis=0) * (-0.5) * cp.power(self.batch_var + self.eps, -1.5)
-            
+            grad_var = (
+                cp.sum(grad_normalized * self.input_centered, axis=0)
+                * (-0.5)
+                * cp.power(self.batch_var + self.eps, -1.5)
+            )
+
             # Gradient with respect to mean
-            grad_mean = cp.sum(grad_normalized * (-1.0 / self.std), axis=0) + grad_var * cp.mean(-2.0 * self.input_centered, axis=0)
-            
+            grad_mean = cp.sum(
+                grad_normalized * (-1.0 / self.std), axis=0
+            ) + grad_var * cp.mean(-2.0 * self.input_centered, axis=0)
+
             # Gradient with respect to input
-            grad_input = (grad_normalized / self.std) + (grad_var * 2.0 * self.input_centered / self.batch_size) + (grad_mean / self.batch_size)
+            grad_input = (
+                (grad_normalized / self.std)
+                + (grad_var * 2.0 * self.input_centered / self.batch_size)
+                + (grad_mean / self.batch_size)
+            )
         else:
             # Inference mode: simpler gradient computation
             grad_input = grad / self.std
-            
+
         # Reshape back to original shape if needed
         if len(original_shape) > 2:
             grad_input = grad_input.reshape(original_shape)
-            
+
         return grad_input
-        
+
     def num_params(self):
         """Return the number of parameters in this layer."""
         if self.affine:
             return self.gamma.size + self.beta.size
         else:
             return 0
-            
+
     def var_params(self):
         """Return the variance of parameters in this layer."""
         if self.affine:
             return cp.var(self.gamma) + cp.var(self.beta)
         else:
             return 0.0
-            
+
     def __call__(self, x):
         return self.forward(x)
 
@@ -323,8 +337,12 @@ class SGD:
                     if hasattr(layer, "soma_bias") and layer.soma_bias:
                         layer_updates.append(cp.zeros_like(layer.soma_b))
                 self.updates.append(layer_updates)
-            elif hasattr(layer, "gamma") and hasattr(layer, "beta"):  # BatchNormalization
-                self.updates.append([cp.zeros_like(layer.gamma), cp.zeros_like(layer.beta)])
+            elif hasattr(layer, "gamma") and hasattr(
+                layer, "beta"
+            ):  # BatchNormalization
+                self.updates.append(
+                    [cp.zeros_like(layer.gamma), cp.zeros_like(layer.beta)]
+                )
             else:  # LinearLayer
                 layer_updates = [cp.zeros_like(layer.W)]
                 if hasattr(layer, "bias") and layer.bias:
@@ -341,7 +359,9 @@ class SGD:
                     layer.soma_dW = 0.0
                     if hasattr(layer, "soma_bias") and layer.soma_bias:
                         layer.soma_db = 0.0
-            elif hasattr(layer, "gamma") and hasattr(layer, "beta"):  # BatchNormalization
+            elif hasattr(layer, "gamma") and hasattr(
+                layer, "beta"
+            ):  # BatchNormalization
                 layer.dgamma = 0.0
                 layer.dbeta = 0.0
             else:  # LinearLayer
@@ -357,26 +377,32 @@ class SGD:
                 update[idx] = self.lr * layer.dendrite_dW + self.momentum * update[idx]
                 layer.dendrite_W -= update[idx]
                 idx += 1
-                
+
                 # Update dendrite bias if enabled
                 if hasattr(layer, "dendrite_bias") and layer.dendrite_bias:
-                    update[idx] = self.lr * layer.dendrite_db + self.momentum * update[idx]
+                    update[idx] = (
+                        self.lr * layer.dendrite_db + self.momentum * update[idx]
+                    )
                     layer.dendrite_b -= update[idx]
                     idx += 1
-                
+
                 # Update soma weights and bias if enabled
                 if hasattr(layer, "soma_enabled") and layer.soma_enabled:
                     update[idx] = self.lr * layer.soma_dW + self.momentum * update[idx]
                     layer.soma_W -= update[idx]
                     idx += 1
-                    
+
                     if hasattr(layer, "soma_bias") and layer.soma_bias:
-                        update[idx] = self.lr * layer.soma_db + self.momentum * update[idx]
+                        update[idx] = (
+                            self.lr * layer.soma_db + self.momentum * update[idx]
+                        )
                         layer.soma_b -= update[idx]
-                    
+
                 # Apply dendrite mask to ensure sparsity is maintained
                 layer.dendrite_W = layer.dendrite_W * layer.dendrite_mask
-            elif hasattr(layer, "gamma") and hasattr(layer, "beta"):  # BatchNormalization
+            elif hasattr(layer, "gamma") and hasattr(
+                layer, "beta"
+            ):  # BatchNormalization
                 update[0] = self.lr * layer.dgamma + self.momentum * update[0]
                 update[1] = self.lr * layer.dbeta + self.momentum * update[1]
                 layer.gamma -= update[0]
@@ -387,7 +413,7 @@ class SGD:
                 update[idx] = self.lr * layer.dW + self.momentum * update[idx]
                 layer.W -= update[idx]
                 idx += 1
-                
+
                 # Update bias if enabled
                 if hasattr(layer, "bias") and layer.bias:
                     update[idx] = self.lr * layer.db + self.momentum * update[idx]
@@ -437,7 +463,9 @@ class Adam:
                         layer_v.append(cp.zeros_like(layer.soma_b))
                 self.m.append(layer_m)
                 self.v.append(layer_v)
-            elif hasattr(layer, "gamma") and hasattr(layer, "beta"):  # BatchNormalization
+            elif hasattr(layer, "gamma") and hasattr(
+                layer, "beta"
+            ):  # BatchNormalization
                 self.m.append([cp.zeros_like(layer.gamma), cp.zeros_like(layer.beta)])
                 self.v.append([cp.zeros_like(layer.gamma), cp.zeros_like(layer.beta)])
             else:  # LinearLayer
@@ -459,7 +487,9 @@ class Adam:
                     layer.soma_dW = 0.0
                     if hasattr(layer, "soma_bias") and layer.soma_bias:
                         layer.soma_db = 0.0
-            elif hasattr(layer, "gamma") and hasattr(layer, "beta"):  # BatchNormalization
+            elif hasattr(layer, "gamma") and hasattr(
+                layer, "beta"
+            ):  # BatchNormalization
                 layer.dgamma = 0.0
                 layer.dbeta = 0.0
             else:  # LinearLayer
@@ -482,7 +512,9 @@ class Adam:
                     if hasattr(layer, "soma_bias") and layer.soma_bias:
                         grads.append(layer.soma_db)
                         params.append(layer.soma_b)
-            elif hasattr(layer, "gamma") and hasattr(layer, "beta"):  # BatchNormalization
+            elif hasattr(layer, "gamma") and hasattr(
+                layer, "beta"
+            ):  # BatchNormalization
                 grads = [layer.dgamma, layer.dbeta]
                 params = [layer.gamma, layer.beta]
             else:  # LinearLayer
@@ -531,7 +563,12 @@ class Sequential:
         """Return a list of layers that have a Weight vectors"""
         params = []
         for layer in self.layers:
-            if hasattr(layer, "W") or hasattr(layer, "soma_W") or hasattr(layer, "dendrite_W") or (hasattr(layer, "gamma") and hasattr(layer, "beta")):
+            if (
+                hasattr(layer, "W")
+                or hasattr(layer, "soma_W")
+                or hasattr(layer, "dendrite_W")
+                or (hasattr(layer, "gamma") and hasattr(layer, "beta"))
+            ):
                 params.append(layer)
         return params
 
@@ -669,7 +706,7 @@ class DendriticLayer:
         self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
             2.0 / (in_dim)
         )  # He init, for ReLU
-        
+
         # Create bias and activation for dendrites
         if self.dendrite_bias:
             self.dendrite_b = cp.zeros((n_soma_connections))
@@ -771,7 +808,7 @@ class DendriticLayer:
         else:
             x = x @ self.dendrite_W.T
         x = self.dendrite_activation(x)
-        
+
         if self.soma_enabled:
             # soma forward pass
             self.soma_x = x
@@ -1012,11 +1049,11 @@ class DendriticLayer:
     def num_params(self, verbose=False):
         dendrite_weights = int(cp.sum(self.dendrite_mask))
         dendrite_biases = self.dendrite_b.size if self.dendrite_bias else 0
-        
+
         if self.soma_enabled:
             soma_weights = int(cp.sum(self.soma_mask))
             soma_biases = self.soma_b.size if self.soma_bias else 0
-            
+
             print(
                 f"\nparameters: dendrite_mask: {dendrite_weights}, dendrite_b: {dendrite_biases}, soma_W: {soma_weights}, soma_b: {soma_biases}"
             )
@@ -1031,12 +1068,12 @@ class DendriticLayer:
         var_sum = cp.var(self.dendrite_W)
         if self.dendrite_bias:
             var_sum += cp.var(self.dendrite_b)
-            
+
         if self.soma_enabled:
             var_sum += cp.var(self.soma_W)
             if self.soma_bias:
                 var_sum += cp.var(self.soma_b)
-                
+
         return var_sum
 
     def __call__(self, x):
