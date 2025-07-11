@@ -8,7 +8,7 @@ class DendriticLayer(nn.Module):
     def __init__(
         self,
         in_dim,
-        n_neurons,
+        output_dim,
         n_dendrite_inputs,
         synaptic_resampling=True,
         percentage_resample=0.25,
@@ -19,8 +19,8 @@ class DendriticLayer(nn.Module):
 
         self.in_dim = in_dim
         self.n_dendrite_inputs = n_dendrite_inputs
-        self.n_neurons = n_neurons
-        self.n_synaptic_connections = n_dendrite_inputs * n_neurons
+        self.output_dim = output_dim
+        self.n_synaptic_connections = n_dendrite_inputs * output_dim
 
         # Synaptic resampling parameters
         self.synaptic_resampling = synaptic_resampling
@@ -30,7 +30,7 @@ class DendriticLayer(nn.Module):
         self.update_steps = 0
 
         # Dendrite layer (input -> output directly)
-        self.dendrite_linear = nn.Linear(in_dim, n_neurons, bias=dendrite_bias)
+        self.dendrite_linear = nn.Linear(in_dim, output_dim, bias=dendrite_bias)
         self.dendrite_activation = nn.LeakyReLU(0.1)
 
         # Initialize weights with He initialization
@@ -54,9 +54,9 @@ class DendriticLayer(nn.Module):
         """Create sparse connectivity masks for dendrites"""
 
         # Dendrite mask: each neuron connects to n_dendrite_inputs random inputs
-        # Shape: (n_neurons, in_dim)
-        dendrite_mask = torch.zeros(self.n_neurons, self.in_dim)
-        for i in range(self.n_neurons):
+        # Shape: (output_dim, in_dim)
+        dendrite_mask = torch.zeros(self.output_dim, self.in_dim)
+        for i in range(self.output_dim):
             # Sample without replacement from possible inputs
             input_idx = torch.randperm(self.in_dim)[: self.n_dendrite_inputs]
             dendrite_mask[i, input_idx] = 1
@@ -71,6 +71,10 @@ class DendriticLayer(nn.Module):
             self.dendrite_linear.weight.data *= self.dendrite_mask
 
     def forward(self, x):
+        # Automatically flatten input if it's not already flattened
+        if x.dim() > 2:
+            x = x.view(x.size(0), -1)  # Flatten to (batch_size, features)
+
         # Dendrite forward pass (direct output)
         x = self.dendrite_linear(x)
         x = self.dendrite_activation(x)
@@ -93,7 +97,7 @@ class DendriticLayer(nn.Module):
 
         with torch.no_grad():
             # Get weight magnitudes (masked weights only)
-            weights = self.dendrite_linear.weight.data  # Shape: (n_neurons, in_dim)
+            weights = self.dendrite_linear.weight.data  # Shape: (output_dim, in_dim)
             masked_weights = weights * self.dendrite_mask
             metric = torch.abs(masked_weights)
 
@@ -172,6 +176,7 @@ class DendriticLayer(nn.Module):
         )
         return int(total)
 
+
 class PatchEmbedding(nn.Module):
     """Converts image patches into embeddings"""
 
@@ -248,17 +253,13 @@ class TransformerBlock(nn.Module):
 
         if use_dendritic:
             # Simplified dendritic layer configuration
-            n_neurons = embed_dim  # Output dimension matches
+            output_dim = embed_dim  # Output dimension matches
             n_dendrite_inputs = 32  # Fixed as requested
-
-            print(
-                f"Dendritic MLP config: {n_dendrite_inputs} inputs, {n_neurons} neurons"
-            )
-
+            
             self.mlp = nn.Sequential(
                 DendriticLayer(
                     in_dim=embed_dim,
-                    n_neurons=n_neurons,
+                    output_dim=output_dim,
                     n_dendrite_inputs=n_dendrite_inputs,
                     synaptic_resampling=True,
                     percentage_resample=0.15,
@@ -409,4 +410,3 @@ class VisionTransformer(nn.Module):
             total = sum(p.numel() for p in self.parameters())
             print(f"Standard ViT parameters: {total}")
             return total
-

@@ -56,7 +56,7 @@ model_1 = Sequential(
             n_dendrites=n_dendrites,
             n_dendrite_inputs=n_dendrite_inputs,
             soma_enabled=False,
-            synaptic_resampling=True,
+            synaptic_resampling=False,
             percentage_resample=0.2,
             steps_to_resample=128,
         ),
@@ -120,7 +120,7 @@ v_optimiser = Adam(model_3.params(), criterion, lr=lr, weight_decay=weight_decay
 models_config = [
     [model_1, optimiser, "dANN"],
     # [model_2, b_optimiser, "dANN, b-norm"],
-    [model_3, v_optimiser, "vANN"],
+    # [model_3, v_optimiser, "vANN"],
 ]
 
 results = train_models(

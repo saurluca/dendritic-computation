@@ -13,11 +13,11 @@ torch.manual_seed(42)
 np.random.seed(42)
 
 # Configuration
-dataset = "fashion-mnist"  # "mnist", "fashion-mnist", or "cifar10"
+dataset = "cifar10"  # "mnist", "fashion-mnist", or "cifar10"
 n_epochs = 15
 batch_size = 256
 n_classes = 10
-    
+
 # Get dataset-specific parameters
 if dataset == "mnist" or dataset == "fashion-mnist":
     img_size = 28
@@ -30,7 +30,7 @@ elif dataset == "cifar10":
 
 # Dendritic model config
 n_dendrite_inputs = 64
-n_neurons = 512
+output_dim = 512
 # ViT config
 patch_size = 4  # 8x8 patches for 32x32 images
 embed_dim = 192
@@ -43,14 +43,23 @@ print(f"Creating models for {dataset.upper()} dataset...")
 model_1 = nn.Sequential(
     DendriticLayer(
         in_dim=in_dim,
-        n_neurons=n_neurons,
+        output_dim=output_dim,
         n_dendrite_inputs=n_dendrite_inputs,
         synaptic_resampling=False,
         percentage_resample=0.3,
         steps_to_resample=100,
     ),
     nn.LeakyReLU(),
-    nn.Linear(n_neurons, n_classes),
+    DendriticLayer(
+        in_dim=output_dim,
+        output_dim=output_dim,
+        n_dendrite_inputs=n_dendrite_inputs,
+        synaptic_resampling=False,
+        percentage_resample=0.3,
+        steps_to_resample=100,
+    ),
+    nn.LeakyReLU(),
+    nn.Linear(output_dim, n_classes),
 ).to(device)
 
 

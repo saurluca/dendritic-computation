@@ -186,6 +186,29 @@ def plot_results(results_dict):
     plt.savefig(f"{model_name}_results.png")
 
 
+def count_active_parameters(model):
+    """Count active parameters in a model, considering dendritic layers"""
+    total_params = 0
+
+    # Handle Sequential models with DendriticLayers
+    if isinstance(model, torch.nn.Sequential):
+        for layer in model:
+            if hasattr(layer, "num_params"):
+                # DendriticLayer with custom parameter counting
+                total_params += layer.num_params()
+            else:
+                # Standard layer
+                total_params += sum(p.numel() for p in layer.parameters())
+    # Handle models with custom num_params method (like VisionTransformer)
+    elif hasattr(model, "num_params"):
+        total_params = model.num_params()
+    else:
+        # Standard model - count all parameters
+        total_params = sum(p.numel() for p in model.parameters())
+
+    return total_params
+
+
 def train_models_comparative(
     models_config,
     criterion,
@@ -238,10 +261,7 @@ def train_models_comparative(
         print("-" * 60)
         for i, config in enumerate(models_config):
             model, optimizer, name = config[:3]  # Handle both 3 and 4 element configs
-            if hasattr(model, "num_params"):
-                params = model.num_params()
-            else:
-                params = sum(p.numel() for p in model.parameters())
+            params = count_active_parameters(model)
             print(f"{name}: {params:,} parameters")
         print("-" * 60)
 
@@ -391,10 +411,7 @@ def train_models_comparative(
 
     for name, result in results.items():
         model = result["model"]
-        if hasattr(model, "num_params"):
-            params = model.num_params()
-        else:
-            params = sum(p.numel() for p in model.parameters())
+        params = count_active_parameters(model)
 
         print(
             f"{name:<20} {result['train_losses'][-1]:<12.4f} "
@@ -403,4 +420,3 @@ def train_models_comparative(
         )
 
     print("=" * 80)
-
