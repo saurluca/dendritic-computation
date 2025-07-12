@@ -255,7 +255,7 @@ class TransformerBlock(nn.Module):
             # Simplified dendritic layer configuration
             output_dim = embed_dim  # Output dimension matches
             n_dendrite_inputs = 32  # Fixed as requested
-            
+
             self.mlp = nn.Sequential(
                 DendriticLayer(
                     in_dim=embed_dim,
@@ -410,3 +410,124 @@ class VisionTransformer(nn.Module):
             total = sum(p.numel() for p in self.parameters())
             print(f"Standard ViT parameters: {total}")
             return total
+
+
+class DropLinear(nn.Module):
+    """
+    Fully connected layer, that drops out neurons over time.
+    Either based on smallest weight magnitude. Or by generating a random mask,
+    and testing if model performance improves, if not it will be kept.
+    Also possible to undo last mask change if performance drops.
+    """
+
+    def __init__(
+        self,
+        in_dim,
+        out_dim,
+        dropout=0.1,
+        drop_type="magnitude",
+        steps_to_resample=16,
+        undo_last_mask=False,
+        min_active_params=100,
+    ):
+        assert drop_type in ["magnitude", "random"], "Invalid drop type"
+
+        super(DropLinear, self).__init__()
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.dropout = dropout
+        self.drop_type = drop_type
+        self.steps_to_resample = steps_to_resample
+        self.min_active_params = min_active_params
+        # use he initialization
+        self.weight = nn.Parameter(
+            torch.randn(out_dim, in_dim) * torch.sqrt(torch.tensor(2.0 / in_dim))
+        )
+        self.bias = nn.Parameter(torch.zeros(out_dim))
+
+        # mask for the linear layer
+        self.register_buffer("mask", torch.ones(in_dim, dtype=torch.bool))
+        # TODO, later make possible to undo last mask change
+        # self.register_buffer("prev_mask", torch.ones(in_dim, dtype=torch.bool))
+        self.update_steps = 0
+
+    def update_mask(self):
+        old_num_params = int(self.num_active_params())
+
+        if self.drop_type == "magnitude":
+            # Calculate number of currently active weights to drop
+            active_indices = torch.where(self.mask)[0]
+            n_active = len(active_indices)
+            n_to_drop = int(n_active * self.dropout)
+
+            # Calculate resulting active parameters after dropping
+            remaining_indices = n_active - n_to_drop
+            remaining_params = remaining_indices * self.out_dim + self.out_dim
+
+            # Ensure we don't go below minimum active parameters
+            if remaining_params < self.min_active_params:
+                min_required_indices = (
+                    self.min_active_params - self.out_dim
+                ) // self.out_dim
+                n_to_drop = n_active - min_required_indices
+
+            if n_to_drop <= 0 or n_active <= 0:
+                return
+
+            # Only consider weights that are currently active
+            weights = self.weight.data
+            active_weight_magnitudes = torch.abs(weights).sum(dim=0)[active_indices]
+            sorted_indices = torch.argsort(active_weight_magnitudes)
+            # Get indices of smallest active weights
+            smallest_active_indices = active_indices[sorted_indices[:n_to_drop]]
+            # Set mask to 0 for smallest active weights (cumulative)
+            self.mask[smallest_active_indices] = 0
+        elif self.drop_type == "random":
+            # Randomly drop some currently active connections (cumulative)
+            active_indices = torch.where(self.mask)[0]
+            n_active = len(active_indices)
+            n_to_drop = int(n_active * self.dropout)
+
+            # Calculate resulting active parameters after dropping
+            remaining_indices = n_active - n_to_drop
+            remaining_params = remaining_indices * self.out_dim + self.out_dim
+
+            # Ensure we don't go below minimum active parameters
+            if remaining_params < self.min_active_params:
+                min_required_indices = (
+                    self.min_active_params - self.out_dim
+                ) // self.out_dim
+                n_to_drop = n_active - min_required_indices
+
+            if n_to_drop <= 0 or n_active <= 0:
+                return
+
+            # Randomly select active connections to drop
+            drop_indices = active_indices[
+                torch.randperm(n_active, device=self.weight.device)[:n_to_drop]
+            ]
+            self.mask[drop_indices] = 0
+
+        # new_num_params = int(self.num_active_params())
+        # removed_params = old_num_params - new_num_params
+        # print(
+        #     f"Removed parameters: {removed_params} (from {old_num_params} to {new_num_params})"
+        # )
+        self.update_steps = 0
+
+    def forward(self, x):
+        self.update_steps += 1
+        if self.training and self.update_steps >= self.steps_to_resample:
+            self.update_mask()
+
+        # Apply mask to weights (mask is applied to input dimension)
+        masked_weight = self.weight * self.mask.unsqueeze(
+            0
+        )  # Broadcast mask to weight shape
+        return torch.nn.functional.linear(x, masked_weight, self.bias)
+
+    def num_params(self):
+        return self.in_dim * self.out_dim + self.out_dim
+
+    def num_active_params(self):
+        return self.mask.sum() * self.out_dim + self.out_dim

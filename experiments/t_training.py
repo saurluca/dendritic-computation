@@ -1,9 +1,21 @@
 import torch
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import numpy as np
 from t_data import load_dataset
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _needs_flattening(model):
+    """Check if a model needs flattened input (contains Linear or DropLinear layers)"""
+    if isinstance(model, torch.nn.Sequential):
+        # Check if first layer is Linear or DropLinear
+        first_layer = model[0]
+        return isinstance(
+            first_layer, (torch.nn.Linear, torch.nn.modules.module.Module)
+        ) and (hasattr(first_layer, "in_features") or hasattr(first_layer, "in_dim"))
+    return False
 
 
 def train_model(
@@ -18,6 +30,9 @@ def train_model(
     """Train a neural network (either dendritic or ViT)"""
     # Check if this is a dendritic model
     is_dendritic = hasattr(model, "dendritic_layer")
+
+    # Check if model needs flattened input (contains Linear or DropLinear layers)
+    needs_flattening = is_dendritic or _needs_flattening(model)
 
     train_losses = []
     train_accuracies = []
@@ -36,9 +51,9 @@ def train_model(
             for batch_idx, (data, target) in enumerate(train_loader):
                 data, target = data.to(device), target.to(device)
 
-                # Flatten images only for dendritic model
-                if is_dendritic:
-                    data = data.view(data.size(0), -1)  # Flatten for dendritic
+                # Flatten images for models that need flattened input
+                if needs_flattening:
+                    data = data.view(data.size(0), -1)  # Flatten for linear layers
 
                 optimizer.zero_grad()
                 outputs = model(data)
@@ -82,7 +97,7 @@ def train_model(
 
             # Evaluate on test set
             test_loss, test_acc = evaluate_model(
-                model, test_loader, criterion, is_dendritic
+                model, test_loader, criterion, needs_flattening
             )
 
             train_losses.append(train_loss)
@@ -99,24 +114,25 @@ def train_model(
     return train_losses, train_accuracies, test_losses, test_accuracies
 
 
-def evaluate_model(model, test_loader, criterion, is_dendritic=None):
+def evaluate_model(model, test_loader, criterion, needs_flattening=None):
     """Evaluate the model on test data"""
     model.eval()
     test_loss = 0.0
     correct = 0
     total = 0
 
-    # Auto-detect if dendritic if not provided
-    if is_dendritic is None:
+    # Auto-detect if flattening is needed if not provided
+    if needs_flattening is None:
         is_dendritic = hasattr(model, "dendritic_layer")
+        needs_flattening = is_dendritic or _needs_flattening(model)
 
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
 
-            # Flatten images only for dendritic model
-            if is_dendritic:
-                data = data.view(data.size(0), -1)  # Flatten for dendritic
+            # Flatten images for models that need flattened input
+            if needs_flattening:
+                data = data.view(data.size(0), -1)  # Flatten for linear layers
 
             outputs = model(data)
             loss = criterion(outputs, target)
@@ -130,6 +146,77 @@ def evaluate_model(model, test_loader, criterion, is_dendritic=None):
     test_acc = correct / total
 
     return test_loss, test_acc
+
+
+def plot_weight_distributions(results_dict):
+    """Plot weight distributions for the first layer of all trained models"""
+    
+    fig, axes = plt.subplots(1, len(results_dict), figsize=(5 * len(results_dict), 5))
+    if len(results_dict) == 1:
+        axes = [axes]
+    
+    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
+    
+    for i, (model_name, result) in enumerate(results_dict.items()):
+        model = result['model']
+        ax = axes[i]
+        
+        # Get the first layer
+        if isinstance(model, torch.nn.Sequential):
+            first_layer = model[0]
+        else:
+            first_layer = model
+            
+        # Extract weights based on layer type
+        if hasattr(first_layer, 'mask'):  # DropLinear layer
+            weights = first_layer.weight.data.cpu().numpy()
+            mask = first_layer.mask.cpu().numpy()
+            
+            # Only plot active weights (where mask is True)
+            active_weights = []
+            for i_out in range(weights.shape[0]):
+                for i_in in range(weights.shape[1]):
+                    if mask[i_in]:  # mask is 1D for input features
+                        active_weights.append(weights[i_out, i_in])
+            
+            active_weights = np.array(active_weights)
+            
+            ax.hist(active_weights, bins=50, alpha=0.7, density=True, 
+                   color=colors[i % len(colors)], edgecolor='black', linewidth=0.5)
+            
+            n_active = len(active_weights)
+            n_total = weights.size
+            ax.set_title(f'{model_name} - Active Weights\n({n_active}/{n_total} = {n_active/n_total:.1%})')
+            
+        else:  # Regular Linear layer
+            weights = first_layer.weight.data.cpu().numpy().flatten()
+            
+            ax.hist(weights, bins=50, alpha=0.7, density=True, 
+                   color=colors[i % len(colors)], edgecolor='black', linewidth=0.5)
+            
+            ax.set_title(f'{model_name} - All Weights\n({len(weights)} weights)')
+        
+        ax.set_xlabel('Weight Value')
+        ax.set_ylabel('Density')
+        ax.grid(True, alpha=0.3)
+        
+        # Add statistics text
+        if hasattr(first_layer, 'mask'):
+            mean_val = np.mean(active_weights)
+            std_val = np.std(active_weights)
+        else:
+            mean_val = np.mean(weights)
+            std_val = np.std(weights)
+            
+        ax.text(0.02, 0.98, f'μ = {mean_val:.3f}\nσ = {std_val:.3f}', 
+                transform=ax.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Save the plot
+    plt.savefig('weight_distributions.png', dpi=300, bbox_inches='tight')
 
 
 def plot_results(results_dict):
@@ -398,6 +485,12 @@ def train_models_comparative(
     plt.tight_layout()
     plt.show()
 
+    # Plot weight distributions for first layer of all models
+    print("\n" + "=" * 60)
+    print("WEIGHT DISTRIBUTIONS (First Layer)")
+    print("=" * 60)
+    plot_weight_distributions(results)
+
     # Print final comparison table
     print("\n" + "=" * 80)
     print("FINAL RESULTS COMPARISON")
@@ -419,4 +512,12 @@ def train_models_comparative(
             f"{result['test_accuracies'][-1] * 100:<11.1f}% {params:<12,}"
         )
 
-    print("=" * 80)
+    if verbose:
+        print(f"Dataset: {dataset.upper()}")
+        print(f"Training {len(models_config)} models for {n_epochs} epochs")
+        print("-" * 60)
+        for i, config in enumerate(models_config):
+            model, optimizer, name = config[:3]  # Handle both 3 and 4 element configs
+            params = count_active_parameters(model)
+            print(f"{name}: {params:,} parameters")
+        print("-" * 60)

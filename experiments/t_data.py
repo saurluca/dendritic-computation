@@ -3,7 +3,7 @@ import torchvision
 import torchvision.transforms as transforms
 
 
-def load_dataset(dataset="mnist", batch_size=256):
+def load_dataset(dataset="mnist", batch_size=256, augmentation=False):
     """Load MNIST, Fashion-MNIST, or CIFAR-10 dataset with normalization
 
     Args:
@@ -43,16 +43,38 @@ def load_dataset(dataset="mnist", batch_size=256):
         )
 
     # Define transforms
-    transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(mean, std)]
-    )
+    if augmentation:
+        # Strong augmentation for CIFAR-10
+        train_transform = transforms.Compose(
+            [
+                # transforms.RandomCrop(32, padding=4),
+                # transforms.RandomHorizontalFlip(p=0.5),
+                # transforms.RandomRotation(15),
+                # transforms.ColorJitter(
+                #     brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
+                # ),
+                transforms.ToTensor(),
+                transforms.Normalize(mean, std),
+                # transforms.RandomErasing(
+                #     p=0.1, scale=(0.02, 0.33), ratio=(0.3, 3.3), value="random"
+                # ),
+            ]
+        )
+        test_transform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize(mean, std)]
+        )
+    else:
+        # No augmentation - same transform for train and test
+        train_transform = test_transform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize(mean, std)]
+        )
 
     # Load datasets
     train_dataset = dataset_class(
-        root="./data", train=True, download=True, transform=transform
+        root="./data", train=True, download=True, transform=train_transform
     )
     test_dataset = dataset_class(
-        root="./data", train=False, download=True, transform=transform
+        root="./data", train=False, download=True, transform=test_transform
     )
 
     # Create data loaders
