@@ -105,11 +105,12 @@ def train_model(
             test_losses.append(test_loss)
             test_accuracies.append(test_acc)
 
-            print(
-                f"Epoch {epoch + 1}/{n_epochs}: "
-                f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
-                f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.4f}"
-            )
+            if epoch % 2 == 0:
+                print(
+                    f"Epoch {epoch + 1}/{n_epochs}: "
+                    f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
+                    f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.4f}"
+                )
 
     return train_losses, train_accuracies, test_losses, test_accuracies
 
@@ -150,73 +151,127 @@ def evaluate_model(model, test_loader, criterion, needs_flattening=None):
 
 def plot_weight_distributions(results_dict):
     """Plot weight distributions for the first layer of all trained models"""
-    
+
     fig, axes = plt.subplots(1, len(results_dict), figsize=(5 * len(results_dict), 5))
     if len(results_dict) == 1:
         axes = [axes]
-    
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
-    
+
+    colors = ["blue", "red", "green", "orange", "purple", "brown", "pink", "gray"]
+
     for i, (model_name, result) in enumerate(results_dict.items()):
-        model = result['model']
+        model = result["model"]
         ax = axes[i]
-        
+
         # Get the first layer
         if isinstance(model, torch.nn.Sequential):
             first_layer = model[0]
         else:
             first_layer = model
-            
+
         # Extract weights based on layer type
-        if hasattr(first_layer, 'mask'):  # DropLinear layer
+        if hasattr(first_layer, "dendrite_mask"):  # DendriticLayer
+            weights = first_layer.dendrite_linear.weight.data.cpu().numpy()
+            mask = first_layer.dendrite_mask.cpu().numpy()
+
+            # Only plot active weights (where mask is True)
+            active_weights = []
+            for i_out in range(weights.shape[0]):
+                for i_in in range(weights.shape[1]):
+                    if mask[i_out, i_in]:  # dendrite_mask is 2D (output_dim, in_dim)
+                        active_weights.append(weights[i_out, i_in])
+
+            active_weights = np.array(active_weights)
+
+            ax.hist(
+                active_weights,
+                bins=50,
+                alpha=0.7,
+                density=True,
+                color=colors[i % len(colors)],
+                edgecolor="black",
+                linewidth=0.5,
+            )
+
+            n_active = len(active_weights)
+            n_total = weights.size
+            ax.set_title(
+                f"{model_name} - Active Weights\n({n_active}/{n_total} = {n_active / n_total:.1%})"
+            )
+
+        elif hasattr(first_layer, "mask"):  # DropLinear layer
             weights = first_layer.weight.data.cpu().numpy()
             mask = first_layer.mask.cpu().numpy()
-            
+
             # Only plot active weights (where mask is True)
             active_weights = []
             for i_out in range(weights.shape[0]):
                 for i_in in range(weights.shape[1]):
                     if mask[i_in]:  # mask is 1D for input features
                         active_weights.append(weights[i_out, i_in])
-            
+
             active_weights = np.array(active_weights)
-            
-            ax.hist(active_weights, bins=50, alpha=0.7, density=True, 
-                   color=colors[i % len(colors)], edgecolor='black', linewidth=0.5)
-            
+
+            ax.hist(
+                active_weights,
+                bins=50,
+                alpha=0.7,
+                density=True,
+                color=colors[i % len(colors)],
+                edgecolor="black",
+                linewidth=0.5,
+            )
+
             n_active = len(active_weights)
             n_total = weights.size
-            ax.set_title(f'{model_name} - Active Weights\n({n_active}/{n_total} = {n_active/n_total:.1%})')
-            
+            ax.set_title(
+                f"{model_name} - Active Weights\n({n_active}/{n_total} = {n_active / n_total:.1%})"
+            )
+
         else:  # Regular Linear layer
             weights = first_layer.weight.data.cpu().numpy().flatten()
-            
-            ax.hist(weights, bins=50, alpha=0.7, density=True, 
-                   color=colors[i % len(colors)], edgecolor='black', linewidth=0.5)
-            
-            ax.set_title(f'{model_name} - All Weights\n({len(weights)} weights)')
-        
-        ax.set_xlabel('Weight Value')
-        ax.set_ylabel('Density')
+
+            ax.hist(
+                weights,
+                bins=50,
+                alpha=0.7,
+                density=True,
+                color=colors[i % len(colors)],
+                edgecolor="black",
+                linewidth=0.5,
+            )
+
+            ax.set_title(f"{model_name} - All Weights\n({len(weights)} weights)")
+
+        ax.set_xlabel("Weight Value")
+        ax.set_ylabel("Density")
         ax.grid(True, alpha=0.3)
-        
+
+        # Set consistent scales for comparison
+        ax.set_xlim(-0.7, 0.7)
+        ax.set_ylim(0, 5)
+
         # Add statistics text
-        if hasattr(first_layer, 'mask'):
+        if hasattr(first_layer, "dendrite_mask") or hasattr(first_layer, "mask"):
             mean_val = np.mean(active_weights)
             std_val = np.std(active_weights)
         else:
             mean_val = np.mean(weights)
             std_val = np.std(weights)
-            
-        ax.text(0.02, 0.98, f'μ = {mean_val:.3f}\nσ = {std_val:.3f}', 
-                transform=ax.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
+
+        ax.text(
+            0.02,
+            0.98,
+            f"μ = {mean_val:.3f}\nσ = {std_val:.3f}",
+            transform=ax.transAxes,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+        )
+
     plt.tight_layout()
     plt.show()
-    
+
     # Save the plot
-    plt.savefig('weight_distributions.png', dpi=300, bbox_inches='tight')
+    plt.savefig("weight_distributions.png", dpi=300, bbox_inches="tight")
 
 
 def plot_results(results_dict):
@@ -280,7 +335,10 @@ def count_active_parameters(model):
     # Handle Sequential models with DendriticLayers
     if isinstance(model, torch.nn.Sequential):
         for layer in model:
-            if hasattr(layer, "num_params"):
+            if hasattr(layer, "num_active_params"):
+                # DropLinear with active parameter counting
+                total_params += int(layer.num_active_params())
+            elif hasattr(layer, "num_params"):
                 # DendriticLayer with custom parameter counting
                 total_params += layer.num_params()
             else:
@@ -485,12 +543,6 @@ def train_models_comparative(
     plt.tight_layout()
     plt.show()
 
-    # Plot weight distributions for first layer of all models
-    print("\n" + "=" * 60)
-    print("WEIGHT DISTRIBUTIONS (First Layer)")
-    print("=" * 60)
-    plot_weight_distributions(results)
-
     # Print final comparison table
     print("\n" + "=" * 80)
     print("FINAL RESULTS COMPARISON")
@@ -512,12 +564,17 @@ def train_models_comparative(
             f"{result['test_accuracies'][-1] * 100:<11.1f}% {params:<12,}"
         )
 
-    if verbose:
-        print(f"Dataset: {dataset.upper()}")
-        print(f"Training {len(models_config)} models for {n_epochs} epochs")
-        print("-" * 60)
-        for i, config in enumerate(models_config):
-            model, optimizer, name = config[:3]  # Handle both 3 and 4 element configs
-            params = count_active_parameters(model)
-            print(f"{name}: {params:,} parameters")
-        print("-" * 60)
+    print("Final number of parameters:")
+    print(f"Training {len(models_config)} models for {n_epochs} epochs")
+    print("-" * 60)
+    for i, config in enumerate(models_config):
+        model, optimizer, name = config[:3]  # Handle both 3 and 4 element configs
+        params = count_active_parameters(model)
+        print(f"{name}: {params:,} parameters")
+    print("-" * 60)
+
+    # Plot weight distributions for first layer of all models
+    print("\n" + "=" * 60)
+    print("WEIGHT DISTRIBUTIONS (First Layer)")
+    print("=" * 60)
+    plot_weight_distributions(results)

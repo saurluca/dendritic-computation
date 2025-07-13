@@ -16,6 +16,67 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 
+def calculate_eigenvalues(model, model_name):
+    """Calculate eigenvalues of weight matrices in dendritic layers and linear layers"""
+    print(f"\n=== Eigenvalues for {model_name} ===")
+
+    for i, layer in enumerate(model.layers):
+        if hasattr(layer, "dendrite_W"):
+            # DendriticLayer
+            # Convert to numpy for eigenvalue calculation
+            dendrite_W = layer.dendrite_W
+            soma_W = layer.soma_W
+
+            if hasattr(dendrite_W, "get"):  # CuPy array
+                dendrite_W = dendrite_W.get()
+                soma_W = soma_W.get()
+
+            # Calculate eigenvalues of covariance matrices
+            # For dendrite_W: (n_soma_connections, in_dim) -> compute W @ W.T
+            dendrite_cov = dendrite_W @ dendrite_W.T
+            dendrite_eigenvals = np.linalg.eigvals(dendrite_cov)
+
+            # For soma_W: (n_neurons, n_soma_connections) -> compute W @ W.T
+            soma_cov = soma_W @ soma_W.T
+            soma_eigenvals = np.linalg.eigvals(soma_cov)
+
+            # Sort eigenvalues in descending order
+            dendrite_eigenvals = np.sort(dendrite_eigenvals)[::-1]
+            soma_eigenvals = np.sort(soma_eigenvals)[::-1]
+
+            print(f"  Layer {i} (DendriticLayer):")
+            print(f"    Dendrite weights eigenvalues (top 5): {dendrite_eigenvals[:5]}")
+            print(
+                f"    Dendrite weights eigenvalues (bottom 5): {dendrite_eigenvals[-5:]}"
+            )
+            print(f"    Soma weights eigenvalues (top 5): {soma_eigenvals[:5]}")
+            print(f"    Soma weights eigenvalues (bottom 5): {soma_eigenvals[-5:]}")
+            print(f"    Dendrite spectral norm: {dendrite_eigenvals[0]:.6f}")
+            print(f"    Soma spectral norm: {soma_eigenvals[0]:.6f}")
+
+        elif hasattr(layer, "W"):
+            # LinearLayer
+            # Convert to numpy for eigenvalue calculation
+            W = layer.W
+
+            if hasattr(W, "get"):  # CuPy array
+                W = W.get()
+
+            # Calculate eigenvalues of covariance matrix
+            # For W: (out_dim, in_dim) -> compute W @ W.T
+            W_cov = W @ W.T
+            W_eigenvals = np.linalg.eigvals(W_cov)
+
+            # Sort eigenvalues in descending order
+            W_eigenvals = np.sort(W_eigenvals)[::-1]
+
+            print(f"  Layer {i} (LinearLayer):")
+            print(f"    Weight matrix shape: {W.shape}")
+            print(f"    Weight eigenvalues (top 5): {W_eigenvals[:5]}")
+            print(f"    Weight eigenvalues (bottom 5): {W_eigenvals[-5:]}")
+            print(f"    Spectral norm: {W_eigenvals[0]:.6f}")
+
+
 class CrossEntropy:
     def __init__(self):
         self.softmax_output = None
@@ -860,17 +921,17 @@ def plot_dendritic_weights_full_model(model, image_shape=(28, 28)):
 
 
 # for repoducability
-cp.random.seed(1287305472311233)
+cp.random.seed(1287311233)
 
 # data config
-dataset = "mnist"  # "mnist", "fashion-mnist"
+dataset = "fashion-mnist"  # "mnist", "fashion-mnist"
 
 # config
-n_epochs = 15  # 15 MNIST, 20 Fashion-MNIST
-lr = 0.002  # 0.002
-v_lr = 0.002  # 0.002
-b_lr = 0.002  # 0.002
-batch_size = 256
+n_epochs = 20  # 15 MNIST, 20 Fashion-MNIST
+lr = 0.001  # 0.002
+v_lr = 0.001  # 0.002
+b_lr = 0.001  # 0.002
+batch_size = 128
 
 in_dim = 28 * 28  # Image dimensions (28x28 MNIST)
 n_classes = 10
@@ -898,7 +959,7 @@ model_1 = Sequential(
             n_dendrite_inputs=n_dendrite_inputs,
             n_dendrites=n_dendrites,
             synaptic_resampling=True,
-            percentage_resample=0.5,  # 0.5
+            percentage_resample=0.1,  # 0.5
             steps_to_resample=128,  # 128
         ),
         LeakyReLU(),
@@ -936,6 +997,14 @@ optimiser_3 = Adam(model_3.params(), lr=v_lr)
 print(f"number of model_1 params: {model_1.num_params()}")
 print(f"number of model_2 params: {model_2.num_params()}")
 print(f"number of model_3 params: {model_3.num_params()}")
+
+# Calculate eigenvalues at the beginning (before training)
+print("\n" + "=" * 50)
+print("EIGENVALUES AT THE BEGINNING (BEFORE TRAINING)")
+print("=" * 50)
+calculate_eigenvalues(model_1, model_name_1)
+calculate_eigenvalues(model_2, model_name_2)
+calculate_eigenvalues(model_3, model_name_3)
 
 # load data
 X_train, y_train, X_test, y_test = load_mnist_data(dataset=dataset)
@@ -980,6 +1049,14 @@ train_losses_3, train_accuracy_3, test_losses_3, test_accuracy_3 = train(
     n_epochs,
     batch_size,
 )
+
+# Calculate eigenvalues at the end (after training)
+print("\n" + "=" * 50)
+print("EIGENVALUES AT THE END (AFTER TRAINING)")
+print("=" * 50)
+calculate_eigenvalues(model_1, model_name_1)
+calculate_eigenvalues(model_2, model_name_2)
+calculate_eigenvalues(model_3, model_name_3)
 
 # plot accuracy of vanilla model vs dendritic model
 plt.plot(train_accuracy_1, label=f"{model_name_1} Train", color="green", linestyle="--")

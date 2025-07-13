@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-
+import math
+import matplotlib.pyplot as plt
 
 class DendriticLayer(nn.Module):
     """A sparse dendritic layer consisting of dendrites only (no soma)"""
@@ -424,21 +425,23 @@ class DropLinear(nn.Module):
         self,
         in_dim,
         out_dim,
-        dropout=0.1,
-        drop_type="magnitude",
         steps_to_resample=16,
-        undo_last_mask=False,
-        min_active_params=100,
+        target_params=100,
+        training_steps=1000,
+        stop_percentage=0.9,
+        drop_distribution="exponential",
+        drop=True,
     ):
-        assert drop_type in ["magnitude", "random"], "Invalid drop type"
-
         super(DropLinear, self).__init__()
         self.in_dim = in_dim
         self.out_dim = out_dim
-        self.dropout = dropout
-        self.drop_type = drop_type
         self.steps_to_resample = steps_to_resample
-        self.min_active_params = min_active_params
+        self.target_params = target_params
+        self.training_steps = training_steps
+        self.stop_percentage = stop_percentage
+        self.drop_distribution = drop_distribution
+        self.drop = drop
+
         # use he initialization
         self.weight = nn.Parameter(
             torch.randn(out_dim, in_dim) * torch.sqrt(torch.tensor(2.0 / in_dim))
@@ -450,80 +453,137 @@ class DropLinear(nn.Module):
         # TODO, later make possible to undo last mask change
         # self.register_buffer("prev_mask", torch.ones(in_dim, dtype=torch.bool))
         self.update_steps = 0
+        self.mask_update_count = 0
+
+        # Calculate and store the dropping schedule
+        if self.drop:
+            self.dropping_schedule = self.calculate_dropping_schedule()
 
     def update_mask(self):
-        old_num_params = int(self.num_active_params())
+        # Check if we still have schedule steps remaining
+        if self.mask_update_count >= len(self.dropping_schedule):
+            return
 
-        if self.drop_type == "magnitude":
-            # Calculate number of currently active weights to drop
-            active_indices = torch.where(self.mask)[0]
-            n_active = len(active_indices)
-            n_to_drop = int(n_active * self.dropout)
+        # Get number of parameters to drop from schedule
+        n_to_drop = self.dropping_schedule[self.mask_update_count]
 
-            # Calculate resulting active parameters after dropping
-            remaining_indices = n_active - n_to_drop
-            remaining_params = remaining_indices * self.out_dim + self.out_dim
+        # Calculate number of currently active weights
+        active_indices = torch.where(self.mask)[0]
+        n_active = len(active_indices)
 
-            # Ensure we don't go below minimum active parameters
-            if remaining_params < self.min_active_params:
-                min_required_indices = (
-                    self.min_active_params - self.out_dim
-                ) // self.out_dim
-                n_to_drop = n_active - min_required_indices
+        # Ensure we don't drop more than available
+        n_to_drop = min(n_to_drop, n_active)
 
-            if n_to_drop <= 0 or n_active <= 0:
-                return
+        if n_to_drop <= 0 or n_active <= 0:
+            self.mask_update_count += 1
+            self.update_steps = 0
+            return
 
-            # Only consider weights that are currently active
-            weights = self.weight.data
-            active_weight_magnitudes = torch.abs(weights).sum(dim=0)[active_indices]
-            sorted_indices = torch.argsort(active_weight_magnitudes)
-            # Get indices of smallest active weights
-            smallest_active_indices = active_indices[sorted_indices[:n_to_drop]]
-            # Set mask to 0 for smallest active weights (cumulative)
-            self.mask[smallest_active_indices] = 0
-        elif self.drop_type == "random":
-            # Randomly drop some currently active connections (cumulative)
-            active_indices = torch.where(self.mask)[0]
-            n_active = len(active_indices)
-            n_to_drop = int(n_active * self.dropout)
+        # Only consider weights that are currently active
+        weights = self.weight.data
+        active_weight_magnitudes = torch.abs(weights).sum(dim=0)[active_indices]
+        sorted_indices = torch.argsort(active_weight_magnitudes)
+        # Get indices of smallest active weights
+        smallest_active_indices = active_indices[sorted_indices[:n_to_drop]]
+        # Set mask to 0 for smallest active weights (cumulative)
+        self.mask[smallest_active_indices] = 0
 
-            # Calculate resulting active parameters after dropping
-            remaining_indices = n_active - n_to_drop
-            remaining_params = remaining_indices * self.out_dim + self.out_dim
-
-            # Ensure we don't go below minimum active parameters
-            if remaining_params < self.min_active_params:
-                min_required_indices = (
-                    self.min_active_params - self.out_dim
-                ) // self.out_dim
-                n_to_drop = n_active - min_required_indices
-
-            if n_to_drop <= 0 or n_active <= 0:
-                return
-
-            # Randomly select active connections to drop
-            drop_indices = active_indices[
-                torch.randperm(n_active, device=self.weight.device)[:n_to_drop]
-            ]
-            self.mask[drop_indices] = 0
-
-        # new_num_params = int(self.num_active_params())
-        # removed_params = old_num_params - new_num_params
-        # print(
-        #     f"Removed parameters: {removed_params} (from {old_num_params} to {new_num_params})"
-        # )
+        self.mask_update_count += 1
         self.update_steps = 0
+
+    def calculate_dropping_schedule(self, verbose=True):
+        """
+        Based on self.target_params, calculate a list of parameter counts to drop at each step.
+        Returns a list with total_update_steps entries.
+        """
+        last_step = int(self.training_steps * self.stop_percentage)
+        total_update_steps = int(last_step / self.steps_to_resample)
+
+        if total_update_steps == 0:
+            return []
+
+        starting_params = self.num_active_params()
+        total_params_to_drop = starting_params - self.target_params
+
+        if total_params_to_drop <= 0:
+            return [0] * total_update_steps
+
+        # Convert to input dimension drops (since we drop input features)
+        total_inputs_to_drop = total_params_to_drop // self.out_dim
+
+        schedule = []
+
+        if self.drop_distribution == "linear":
+            # Linear distribution: same number each step
+            inputs_per_step = total_inputs_to_drop // total_update_steps
+            remainder = total_inputs_to_drop % total_update_steps
+
+            for i in range(total_update_steps):
+                # Distribute remainder across first few steps
+                extra = 1 if i < remainder else 0
+                schedule.append(inputs_per_step + extra)
+
+        elif self.drop_distribution == "exponential":
+            # Exponential distribution: more early, less later
+            # Use exponential decay: drop_rate = base_rate * exp(-decay_rate * step)
+            decay_rate = 0.5  # Controls how fast the decay happens
+            weights = []
+
+            for i in range(total_update_steps):
+                weight = math.exp(-decay_rate * i / total_update_steps)
+                weights.append(weight)
+
+            total_weight = sum(weights)
+
+            for i in range(total_update_steps):
+                normalized_weight = weights[i] / total_weight
+                inputs_to_drop = int(normalized_weight * total_inputs_to_drop)
+                schedule.append(inputs_to_drop)
+        else:
+            raise ValueError(f"Invalid drop distribution: {self.drop_distribution}")
+
+        # Ensure we don't exceed total inputs to drop
+        total_scheduled = sum(schedule)
+        if total_scheduled > total_inputs_to_drop:
+            # Reduce from the end
+            excess = total_scheduled - total_inputs_to_drop
+            for i in range(len(schedule) - 1, -1, -1):
+                if excess <= 0:
+                    break
+                reduction = min(schedule[i], excess)
+                schedule[i] -= reduction
+                excess -= reduction
+        elif total_scheduled < total_inputs_to_drop:
+            # Add to the end
+            remaining = total_inputs_to_drop - total_scheduled
+            for i in range(len(schedule)):
+                if remaining <= 0:
+                    break
+                schedule[i] += 1
+                remaining -= 1
+
+        if verbose:
+            # plot dropping schedule
+            plt.title(f"Dropping schedule for {self.drop_distribution} distribution")
+            plt.xlabel("Step")
+            plt.ylabel("Number of parameters to drop")
+            plt.plot(schedule)
+            plt.show()
+
+        return schedule
 
     def forward(self, x):
         self.update_steps += 1
-        if self.training and self.update_steps >= self.steps_to_resample:
+        if self.training and self.drop and self.update_steps >= self.steps_to_resample:
             self.update_mask()
 
         # Apply mask to weights (mask is applied to input dimension)
-        masked_weight = self.weight * self.mask.unsqueeze(
-            0
-        )  # Broadcast mask to weight shape
+        if self.drop:
+            masked_weight = self.weight * self.mask.unsqueeze(
+                0
+            )  # Broadcast mask to weight shape
+        else:
+            masked_weight = self.weight
         return torch.nn.functional.linear(x, masked_weight, self.bias)
 
     def num_params(self):
