@@ -24,14 +24,14 @@ from training import train_models
 cp.random.seed(1223)
 
 # data config
-dataset = "cifar10"  # "mnist", "fashion-mnist", "cifar10"
+dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
 data_augmentation = True
 
 # config
-n_epochs = 50  # 15 MNIST, 20 Fashion-MNIST
-lr = 0.002  # 0.003
-weight_decay = 0.01  # 0.001
+n_epochs = 6  # 15 MNIST, 20 Fashion-MNIST
+lr = 0.004 # 0.003
+weight_decay = 0.0  # 0.001
 batch_size = 256
 n_classes = 10
 
@@ -43,35 +43,29 @@ else:
     raise ValueError(f"Invalid dataset: {dataset}")
 
 # dendriticmodel config
-n_dendrite_inputs = 64  # 31 / 128
-n_dendrites = 512  # 23 / 6
-n_neurons = 64  # 10 / 10
+n_dendrite_inputs = 31  # 31 / 128
+n_dendrites = 23  # 23 / 6
+n_neurons = 10  # 10 / 10
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
 
 # model to compare
 model_1 = Sequential(
-    [
+        [
         DendriticLayer(
             in_dim,
+            n_neurons=n_neurons,
             n_dendrites=n_dendrites,
             n_dendrite_inputs=n_dendrite_inputs,
-            soma_enabled=False,
-            synaptic_resampling=False,
-            percentage_resample=0.2,
-            steps_to_resample=128,
+            soma_enabled=True,
+            synaptic_resampling=True,
+            steps_to_resample=128, # 128
+            probabilistic_resampling=True,
+            p_max_prune=1.0, # 1.0
+            threshold_w=0.05, # 0.1
+            steepness=0.001, # 0.001
         ),
         LeakyReLU(),
-        DendriticLayer(
-            n_dendrites,
-            n_dendrites=n_dendrites,
-            n_dendrite_inputs=n_dendrite_inputs,
-            soma_enabled=False,
-            synaptic_resampling=False,
-            percentage_resample=0.2,
-            steps_to_resample=128,
-        ),
-        LeakyReLU(),
-        LinearLayer(n_dendrites, n_classes),
+        LinearLayer(n_neurons, n_classes),
     ]
 )
 # baseline dANN
@@ -79,25 +73,16 @@ model_2 = Sequential(
     [
         DendriticLayer(
             in_dim,
+            n_neurons=n_neurons,
             n_dendrites=n_dendrites,
             n_dendrite_inputs=n_dendrite_inputs,
-            soma_enabled=False,
-            synaptic_resampling=True,
-            percentage_resample=0.2,
+            soma_enabled=True,
+            synaptic_resampling=False,
+            percentage_resample=0.1,
             steps_to_resample=128,
         ),
         LeakyReLU(),
-        DendriticLayer(
-            n_dendrites,
-            n_dendrites=n_dendrites,
-            n_dendrite_inputs=n_dendrite_inputs,
-            soma_enabled=False,
-            synaptic_resampling=True,
-            percentage_resample=0.2,
-            steps_to_resample=128,
-        ),
-        LeakyReLU(),
-        LinearLayer(n_dendrites, n_classes),
+        LinearLayer(n_neurons, n_classes),
     ]
 )
 # baseline vANN
@@ -118,8 +103,8 @@ b_optimiser = Adam(model_2.params(), criterion, lr=lr, weight_decay=weight_decay
 v_optimiser = Adam(model_3.params(), criterion, lr=lr, weight_decay=weight_decay)
 
 models_config = [
-    [model_1, optimiser, "dANN"],
-    # [model_2, b_optimiser, "dANN, b-norm"],
+    [model_1, optimiser, "dANN, prob"],
+    [model_2, b_optimiser, "dANN"],
     # [model_3, v_optimiser, "vANN"],
 ]
 

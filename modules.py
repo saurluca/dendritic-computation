@@ -318,111 +318,6 @@ class BatchNormalization:
         return self.forward(x)
 
 
-class SGD:
-    def __init__(self, params, criterion, lr=0.01, momentum=0.9):
-        self.params = params
-        self.criterion = criterion
-        self.lr = lr
-        self.momentum = momentum
-
-        # Initialize updates based on layer type
-        self.updates = []
-        for layer in self.params:
-            if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                layer_updates = [cp.zeros_like(layer.dendrite_W)]
-                if hasattr(layer, "dendrite_bias") and layer.dendrite_bias:
-                    layer_updates.append(cp.zeros_like(layer.dendrite_b))
-                if hasattr(layer, "soma_enabled") and layer.soma_enabled:
-                    layer_updates.append(cp.zeros_like(layer.soma_W))
-                    if hasattr(layer, "soma_bias") and layer.soma_bias:
-                        layer_updates.append(cp.zeros_like(layer.soma_b))
-                self.updates.append(layer_updates)
-            elif hasattr(layer, "gamma") and hasattr(
-                layer, "beta"
-            ):  # BatchNormalization
-                self.updates.append(
-                    [cp.zeros_like(layer.gamma), cp.zeros_like(layer.beta)]
-                )
-            else:  # LinearLayer
-                layer_updates = [cp.zeros_like(layer.W)]
-                if hasattr(layer, "bias") and layer.bias:
-                    layer_updates.append(cp.zeros_like(layer.b))
-                self.updates.append(layer_updates)
-
-    def zero_grad(self):
-        for layer in self.params:
-            if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                layer.dendrite_dW = 0.0
-                if hasattr(layer, "dendrite_bias") and layer.dendrite_bias:
-                    layer.dendrite_db = 0.0
-                if hasattr(layer, "soma_enabled") and layer.soma_enabled:
-                    layer.soma_dW = 0.0
-                    if hasattr(layer, "soma_bias") and layer.soma_bias:
-                        layer.soma_db = 0.0
-            elif hasattr(layer, "gamma") and hasattr(
-                layer, "beta"
-            ):  # BatchNormalization
-                layer.dgamma = 0.0
-                layer.dbeta = 0.0
-            else:  # LinearLayer
-                layer.dW = 0.0
-                if hasattr(layer, "bias") and layer.bias:
-                    layer.db = 0.0
-
-    def step(self):
-        for layer, update in zip(self.params, self.updates):
-            if hasattr(layer, "dendrite_W"):  # DendriticLayer
-                idx = 0
-                # Update dendrite weights
-                update[idx] = self.lr * layer.dendrite_dW + self.momentum * update[idx]
-                layer.dendrite_W -= update[idx]
-                idx += 1
-
-                # Update dendrite bias if enabled
-                if hasattr(layer, "dendrite_bias") and layer.dendrite_bias:
-                    update[idx] = (
-                        self.lr * layer.dendrite_db + self.momentum * update[idx]
-                    )
-                    layer.dendrite_b -= update[idx]
-                    idx += 1
-
-                # Update soma weights and bias if enabled
-                if hasattr(layer, "soma_enabled") and layer.soma_enabled:
-                    update[idx] = self.lr * layer.soma_dW + self.momentum * update[idx]
-                    layer.soma_W -= update[idx]
-                    idx += 1
-
-                    if hasattr(layer, "soma_bias") and layer.soma_bias:
-                        update[idx] = (
-                            self.lr * layer.soma_db + self.momentum * update[idx]
-                        )
-                        layer.soma_b -= update[idx]
-
-                # Apply dendrite mask to ensure sparsity is maintained
-                layer.dendrite_W = layer.dendrite_W * layer.dendrite_mask
-            elif hasattr(layer, "gamma") and hasattr(
-                layer, "beta"
-            ):  # BatchNormalization
-                update[0] = self.lr * layer.dgamma + self.momentum * update[0]
-                update[1] = self.lr * layer.dbeta + self.momentum * update[1]
-                layer.gamma -= update[0]
-                layer.beta -= update[1]
-            else:  # LinearLayer
-                idx = 0
-                # Update weights
-                update[idx] = self.lr * layer.dW + self.momentum * update[idx]
-                layer.W -= update[idx]
-                idx += 1
-
-                # Update bias if enabled
-                if hasattr(layer, "bias") and layer.bias:
-                    update[idx] = self.lr * layer.db + self.momentum * update[idx]
-                    layer.b -= update[idx]
-
-    def __call__(self):
-        return self.step()
-
-
 class Adam:
     def __init__(
         self,
@@ -672,6 +567,9 @@ class DendriticLayer:
         soma_enabled=True,
         dendrite_bias=True,
         soma_bias=True,
+        p_max_prune=0.95,
+        threshold_w=0.4,
+        steepness=0.1,
     ):
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
             "Invalid strategy"
@@ -697,15 +595,38 @@ class DendriticLayer:
         self.local_receptive_field_std_dev_factor = local_receptive_field_std_dev_factor
         self.lrf_resampling_prob = lrf_resampling_prob
         self.dynamic_steps_size = dynamic_steps_size
+
+        # probabilistic pruning
+        self.p_max_prune = p_max_prune
+        self.threshold_w = threshold_w
+        self.steepness = steepness
+
         # to keep track of resampling
         self.num_mask_updates = 1
         self.update_steps = 0
 
         self.in_dim = in_dim
         self.n_dendrite_inputs = n_dendrite_inputs
-        self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
-            2.0 / (in_dim)
-        )  # He init, for ReLU
+
+        # Initialize dendrite weights
+        if self.probabilistic_resampling:
+            # Generate random signs (positive or negative)
+            signs = cp.random.choice([-1, 1], size=(n_soma_connections, in_dim))
+            # Generate magnitudes around threshold_w with scale based on steepness
+            magnitudes = cp.abs(
+                cp.random.normal(
+                    loc=self.threshold_w,
+                    scale=self.steepness / 5,
+                    size=(n_soma_connections, in_dim),
+                )
+            )
+            # Combine signs and magnitudes to get weights that can be positive or negative
+            self.dendrite_W = signs * magnitudes
+        else:
+            # Standard He initialization for ReLU
+            self.dendrite_W = cp.random.randn(n_soma_connections, in_dim) * cp.sqrt(
+                2.0 / (in_dim)
+            )
 
         # Create bias and activation for dendrites
         if self.dendrite_bias:
@@ -929,17 +850,11 @@ class DendriticLayer:
         # --- Part 1: Connection Removal ---
         if self.probabilistic_resampling:
             # --- Probabilistic pruning based on weight magnitude ---
-            P_MAX_PRUNE = 0.95
-            THRESHOLD_W = 0.6
-            STEEPNESS = 0.1
-            # P_MAX_PRUNE = 0.95
-            # THRESHOLD_W = 0.5
-            # STEEPNESS = 0.1 with 100
 
             w_abs = cp.abs(self.dendrite_W)
             # Sigmoid-based pruning probability
-            prune_probabilities = P_MAX_PRUNE / (
-                1 + cp.exp((w_abs - THRESHOLD_W) / STEEPNESS)
+            prune_probabilities = self.p_max_prune / (
+                1 + cp.exp((w_abs - self.threshold_w) / self.steepness)
             )
 
             # Probabilistically decide which connections to prune.
@@ -955,6 +870,8 @@ class DendriticLayer:
 
             removed_dendrite_indices = rows_to_remove
             removed_input_indices = cols_to_remove
+
+            print(f"num of dendrite successful swaps: {rows_to_remove.size}")
         else:
             # --- Flat-rate pruning ---
             if self.scaling_resampling_percentage:
@@ -1030,9 +947,27 @@ class DendriticLayer:
             self.dendrite_mask[dendrites_to_swap, old_inputs_to_remove] = 0
             self.dendrite_mask[dendrites_to_swap, new_inputs_to_add] = 1
 
-            self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = cp.random.randn(
-                dendrites_to_swap.shape[0]
-            ) * cp.sqrt(2.0 / self.in_dim)
+            # Initialize new weights
+            if self.probabilistic_resampling:
+                # Generate random signs (positive or negative)
+                signs = cp.random.choice([-1, 1], size=dendrites_to_swap.shape[0])
+                # Generate magnitudes around threshold_w with scale based on steepness
+                magnitudes = cp.abs(
+                    cp.random.normal(
+                        loc=self.threshold_w,
+                        scale=self.steepness / 5,
+                        size=dendrites_to_swap.shape[0],
+                    )
+                )
+                # Combine signs and magnitudes to get weights that can be positive or negative
+                self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = (
+                    signs * magnitudes
+                )
+            else:
+                # with He initialization
+                self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = cp.random.randn(
+                    dendrites_to_swap.shape[0]
+                ) * cp.sqrt(2.0 / self.in_dim)
 
         self.dendrite_W = self.dendrite_W * self.dendrite_mask
 
@@ -1044,6 +979,12 @@ class DendriticLayer:
         connections_per_dendrite = cp.sum(self.dendrite_mask, axis=1)
         assert cp.all(connections_per_dendrite == self.n_dendrite_inputs), (
             f"Resampling failed: not all dendrites have {self.n_dendrite_inputs} connections."
+        )
+        assert (
+            cp.sum(cp.count_nonzero(self.dendrite_W))
+            == self.n_dendrites * self.n_dendrite_inputs * self.n_neurons
+        ), (
+            f"Resampling failed: not all dendrites have {self.n_dendrites * self.n_dendrite_inputs * self.n_neurons} connections in total."
         )
 
     def num_params(self, verbose=False):

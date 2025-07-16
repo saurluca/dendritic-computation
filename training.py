@@ -14,6 +14,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import math
 from utils import load_mnist_data, load_cifar10_data
+import numpy as np
 
 
 def create_batches(X, y, batch_size=128, shuffle=True, drop_last=True):
@@ -294,6 +295,85 @@ def train_models(
         plt.tight_layout()
         plt.show()
 
+        # Plot 2: Weight distribution histogram for dendritic layers
+        dendritic_models = []
+        for i, (model, optimizer, name) in enumerate(models_config):
+            if hasattr(model.layers[0], "dendrite_W"):
+                dendritic_models.append((model, name, results[i]["color"]))
+
+        if dendritic_models:
+            plt.figure(figsize=(12, 5))
+            plt.subplot(1, 2, 1)
+
+            for model, name, color in dendritic_models:
+                dendrite_weights = model.layers[0].dendrite_W
+                dendrite_mask = model.layers[0].dendrite_mask
+                masked_weights = dendrite_weights * dendrite_mask
+
+                # Convert to numpy if using CuPy
+                if hasattr(masked_weights, "get"):
+                    magnitudes = cp.abs(masked_weights).get()
+                else:
+                    magnitudes = cp.abs(masked_weights)
+
+                plt.hist(
+                    magnitudes[magnitudes > 0],
+                    bins=50,
+                    alpha=0.6,
+                    color=color,
+                    edgecolor="black",
+                    label=name,
+                )
+
+            plt.title("Weight Magnitude Distribution")
+            plt.xlabel("Weight Magnitude")
+            plt.ylabel("Frequency")
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+
+            # Plot sparsity comparison
+            plt.subplot(1, 2, 2)
+            sparsity_data = []
+            model_names = []
+
+            for model, name, color in dendritic_models:
+                dendrite_mask = model.layers[0].dendrite_mask
+                if hasattr(dendrite_mask, "get"):
+                    mask_np = dendrite_mask.get()
+                else:
+                    mask_np = dendrite_mask
+
+                total_params = mask_np.size
+                active_params = cp.sum(mask_np)
+                sparsity = 1 - (active_params / total_params)
+                sparsity_data.append(float(sparsity))
+                model_names.append(name)
+
+            bars = plt.bar(
+                model_names,
+                sparsity_data,
+                color=[color for _, _, color in dendritic_models],
+                alpha=0.7,
+                edgecolor="black",
+            )
+            plt.title("Model Sparsity")
+            plt.ylabel("Sparsity (1 - active_params/total_params)")
+            plt.xticks(rotation=45)
+            plt.grid(True, alpha=0.3)
+
+            # Add value labels on bars
+            for bar, sparsity in zip(bars, sparsity_data):
+                plt.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.01,
+                    f"{sparsity:.3f}",
+                    ha="center",
+                    va="bottom",
+                )
+
+            plt.tight_layout()
+            plt.show()
+
     # Print final comparison statistics
     print("\n" + "=" * 60)
     print("FINAL RESULTS SUMMARY")
@@ -321,6 +401,8 @@ def train_models(
 
     print("=" * 60)
 
+    # plot weights distribution of first layer of each model
+
     return results
 
 
@@ -338,7 +420,6 @@ def calculate_dendritic_spatial_entropy(
     Returns:
         tuple: (spatial_entropy, weight_value_entropy)
     """
-    import numpy as np
 
     def to_numpy(arr):
         if hasattr(arr, "get"):
@@ -394,7 +475,6 @@ def plot_dendritic_weights(model, input_image, neuron_idx=0, image_shape=(28, 28
         neuron_idx (int): The index of the neuron to visualize.
         image_shape (tuple): The shape to reshape the image and weights into (e.g., (28, 28)).
     """
-    import numpy as np
 
     def to_numpy(arr):
         if hasattr(arr, "get"):
@@ -497,7 +577,6 @@ def plot_dendritic_weights_single_image(
     Plots the aggregated magnitude of all dendritic weights of a single neuron on one image.
     Color indicates the sum of magnitudes at each location.
     """
-    import numpy as np
 
     def to_numpy(arr):
         if hasattr(arr, "get"):
@@ -572,7 +651,6 @@ def plot_dendritic_weights_full_model(model, input_image, image_shape=(28, 28)):
     Plots the aggregated magnitude of all dendritic weights across all neurons in the model.
     Shows the combined weight pattern without any background image.
     """
-    import numpy as np
 
     def to_numpy(arr):
         if hasattr(arr, "get"):
@@ -691,7 +769,6 @@ def print_network_entropy(model, image_shape=(28, 28)):
         model: The trained model containing a DendriticLayer
         image_shape: Shape to reshape the weights into (e.g., (28, 28))
     """
-    import numpy as np
 
     # Find the DendriticLayer
     dendritic_layer = None
