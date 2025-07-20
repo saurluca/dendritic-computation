@@ -318,7 +318,7 @@ def train_models(
 
                 plt.hist(
                     magnitudes[magnitudes > 0],
-                    bins=50,
+                    bins=20,
                     alpha=0.6,
                     color=color,
                     edgecolor="black",

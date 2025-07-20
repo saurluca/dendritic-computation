@@ -570,6 +570,9 @@ class DendriticLayer:
         p_max_prune=0.95,
         threshold_w=0.4,
         steepness=0.1,
+        resampling_distribution="laplace",
+        laplace_location=0.0,
+        laplace_scale=0.1,
     ):
         assert strategy in ("random", "local-receptive-fields", "fully-connected"), (
             "Invalid strategy"
@@ -601,6 +604,11 @@ class DendriticLayer:
         self.threshold_w = threshold_w
         self.steepness = steepness
 
+        # distribution parameters for probabilistic resampling
+        self.resampling_distribution = resampling_distribution
+        self.laplace_location = laplace_location
+        self.laplace_scale = laplace_scale
+
         # to keep track of resampling
         self.num_mask_updates = 1
         self.update_steps = 0
@@ -609,7 +617,16 @@ class DendriticLayer:
         self.n_dendrite_inputs = n_dendrite_inputs
 
         # Initialize dendrite weights
-        if self.probabilistic_resampling:
+        if self.probabilistic_resampling and self.resampling_distribution == "laplace":
+            # Sample weights directly from Laplace distribution
+            self.dendrite_W = cp.random.laplace(
+                loc=self.laplace_location,
+                scale=self.laplace_scale,
+                size=(n_soma_connections, in_dim),
+            )
+        elif (
+            self.probabilistic_resampling and self.resampling_distribution == "sigmoid"
+        ):
             # Generate random signs (positive or negative)
             signs = cp.random.choice([-1, 1], size=(n_soma_connections, in_dim))
             # Generate magnitudes around threshold_w with scale based on steepness
@@ -852,10 +869,28 @@ class DendriticLayer:
             # --- Probabilistic pruning based on weight magnitude ---
 
             w_abs = cp.abs(self.dendrite_W)
-            # Sigmoid-based pruning probability
-            prune_probabilities = self.p_max_prune / (
-                1 + cp.exp((w_abs - self.threshold_w) / self.steepness)
-            )
+            if self.resampling_distribution == "laplace":
+                # Laplace-based pruning probability using CDF
+                # For weights centered around laplace_location, compute CDF
+                # We use 1 - CDF (survival function) so smaller weights have higher pruning probability
+                x_centered = w_abs - self.laplace_location
+                # Laplace CDF: F(x) = 1/2 * exp((x-μ)/b) if x < μ, else 1 - 1/2 * exp(-(x-μ)/b)
+                laplace_cdf = cp.where(
+                    x_centered < 0,
+                    0.5 * cp.exp(x_centered / self.laplace_scale),
+                    1 - 0.5 * cp.exp(-x_centered / self.laplace_scale),
+                )
+                # Use survival function (1 - CDF) for pruning probability
+                prune_probabilities = 1 - laplace_cdf
+            elif self.resampling_distribution == "sigmoid":
+                # Sigmoid-based pruning probability
+                prune_probabilities = self.p_max_prune / (
+                    1 + cp.exp((w_abs - self.threshold_w) / self.steepness)
+                )
+            else:
+                raise ValueError(
+                    f"Invalid distribution: {self.resampling_distribution}"
+                )
 
             # Probabilistically decide which connections to prune.
             should_prune_mask = (
@@ -948,7 +983,22 @@ class DendriticLayer:
             self.dendrite_mask[dendrites_to_swap, new_inputs_to_add] = 1
 
             # Initialize new weights
-            if self.probabilistic_resampling:
+            if (
+                self.probabilistic_resampling
+                and self.resampling_distribution == "laplace"
+            ):
+                # Sample new weights directly from Laplace distribution
+                self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = (
+                    cp.random.laplace(
+                        loc=self.laplace_location,
+                        scale=self.laplace_scale,
+                        size=dendrites_to_swap.shape[0],
+                    )
+                )
+            elif (
+                self.probabilistic_resampling
+                and self.resampling_distribution == "sigmoid"
+            ):
                 # Generate random signs (positive or negative)
                 signs = cp.random.choice([-1, 1], size=dendrites_to_swap.shape[0])
                 # Generate magnitudes around threshold_w with scale based on steepness
@@ -964,7 +1014,7 @@ class DendriticLayer:
                     signs * magnitudes
                 )
             else:
-                # with He initialization
+                # Use He initialization for non-probabilistic resampling
                 self.dendrite_W[dendrites_to_swap, new_inputs_to_add] = cp.random.randn(
                     dendrites_to_swap.shape[0]
                 ) * cp.sqrt(2.0 / self.in_dim)

@@ -26,10 +26,10 @@ cp.random.seed(1223)
 # data config
 dataset = "fashion-mnist"  # "mnist", "fashion-mnist", "cifar10"
 subset_size = None
-data_augmentation = True
+data_augmentation = False
 
 # config
-n_epochs = 6  # 15 MNIST, 20 Fashion-MNIST
+n_epochs = 10  # 15 MNIST, 20 Fashion-MNIST
 lr = 0.004 # 0.003
 weight_decay = 0.0  # 0.001
 batch_size = 256
@@ -43,7 +43,7 @@ else:
     raise ValueError(f"Invalid dataset: {dataset}")
 
 # dendriticmodel config
-n_dendrite_inputs = 31  # 31 / 128
+n_dendrite_inputs = 32  # 31 / 128
 n_dendrites = 23  # 23 / 6
 n_neurons = 10  # 10 / 10
 strategy = "random"  # ["random", "local-receptive-fields", "fully-connected"]
@@ -58,11 +58,11 @@ model_1 = Sequential(
             n_dendrite_inputs=n_dendrite_inputs,
             soma_enabled=True,
             synaptic_resampling=True,
-            steps_to_resample=128, # 128
+            steps_to_resample=64, # 128
             probabilistic_resampling=True,
-            p_max_prune=1.0, # 1.0
-            threshold_w=0.05, # 0.1
-            steepness=0.001, # 0.001
+            resampling_distribution="laplace",
+            laplace_location=0.0,
+            laplace_scale=0.05
         ),
         LeakyReLU(),
         LinearLayer(n_neurons, n_classes),
@@ -77,7 +77,7 @@ model_2 = Sequential(
             n_dendrites=n_dendrites,
             n_dendrite_inputs=n_dendrite_inputs,
             soma_enabled=True,
-            synaptic_resampling=False,
+            synaptic_resampling=True,
             percentage_resample=0.1,
             steps_to_resample=128,
         ),
@@ -88,9 +88,9 @@ model_2 = Sequential(
 # baseline vANN
 model_3 = Sequential(
     [
-        LinearLayer(in_dim, 23, bias=False),
+        LinearLayer(in_dim, 23, bias=True),
         LeakyReLU(),
-        LinearLayer(23, 15, bias=False),
+        LinearLayer(23, 15, bias=True),
         LeakyReLU(),
         LinearLayer(15, n_classes),
     ]
