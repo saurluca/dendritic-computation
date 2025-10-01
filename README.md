@@ -376,10 +376,6 @@ Contributions are welcome! Areas for improvement:
 - [ ] Implement dataloader classes for better memory efficiency
 - [ ] Explore vision transformer architectures with dendritic layers
 
-## 📄 License
-
-[Add your license information here]
-
 ## 🙏 Acknowledgments
 
 This project explores the intersection of neuroscience and machine learning, demonstrating that biologically-inspired architectures can achieve strong performance with remarkable parameter efficiency.
