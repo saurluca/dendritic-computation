@@ -365,22 +365,7 @@ This work is based on and inspired by:
    *Dendrites endow artificial neural networks with accurate, robust and parameter-efficient learning*  
    Nature Communications, 16(1), p.943.  
    [DOI: 10.1038/s41467-024-55957-7](https://doi.org/10.1038/s41467-024-55957-7)
-
-## 🤝 Contributing
-
-Contributions are welcome! Areas for improvement:
-
-- [ ] Implement additional dendrite input strategies
-- [ ] Further optimize sparse matrix calculations (CSR/CSC formats)
-- [ ] Add support for more datasets (CIFAR-10, ImageNet)
-- [ ] Implement dataloader classes for better memory efficiency
-- [ ] Explore vision transformer architectures with dendritic layers
-
-## 🙏 Acknowledgments
-
-This project explores the intersection of neuroscience and machine learning, demonstrating that biologically-inspired architectures can achieve strong performance with remarkable parameter efficiency.
-
----
+]
 
 **Keywords**: dendritic computation, structural plasticity, synaptic resampling, parameter-efficient learning, sparse neural networks, biologically-inspired AI
 
