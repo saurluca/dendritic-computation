@@ -1,6 +1,6 @@
 # Dendritic Computation: Biologically-Inspired Neural Networks with Structural Plasticity
 
-A parameter-efficient neural network implementation inspired by dendritic computation in biological neurons based on the work from Chavlis & Poirazi, 2025 [2]. This project explores how sparse dendritic architectures with synaptic resampling can achieve competitive performance with significantly fewer parameters than traditional deep learning models. This 
+A parameter-efficient neural network implementation inspired by dendritic computation in biological neurons based on the work from Chavlis & Poirazi, 2025 [2]. This project explores how sparse dendritic architectures with synaptic resampling can achieve competitive performance with significantly fewer parameters than traditional deep learning models. 
 
 ## 🧠 Overview
 
